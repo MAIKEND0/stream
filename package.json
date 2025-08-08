@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server-simple.js",
+    "start": "node server-webrtc.js",
+    "start:simple": "node server-simple.js",
     "start:full": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.5.4",
+    "socket.io-client": "^4.5.4",
     "dotenv": "^16.0.3",
     "cors": "^2.8.5"
   },
