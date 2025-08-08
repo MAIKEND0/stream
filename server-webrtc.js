@@ -37,25 +37,28 @@ app.get('/', (req, res) => {
 
 // Tworzenie streamu i zwracanie danych do WebRTC
 app.post('/api/stream/create', async (req, res) => {
-  const { userId, title, description } = req.body;
+  const { userId, title, description, youtubeKey, youtubeRtmpUrl } = req.body;
   
   try {
-    // Tu powinno być prawdziwe tworzenie streamu YouTube
-    // Ale dla testów używamy mock danych
     const streamId = `stream_${Date.now()}`;
-    const mockYoutubeKey = `mock_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Użyj prawdziwych danych YouTube jeśli dostarczone, w przeciwnym razie mock
+    const finalYoutubeKey = youtubeKey || `mock_${Math.random().toString(36).substr(2, 9)}`;
+    const finalRtmpUrl = youtubeRtmpUrl || `rtmp://a.rtmp.youtube.com/live2/${finalYoutubeKey}`;
     
     activeStreams.set(streamId, {
       userId,
       title,
       description,
-      youtubeKey: mockYoutubeKey,
-      youtubeUrl: `rtmp://a.rtmp.youtube.com/live2/${mockYoutubeKey}`,
+      youtubeKey: finalYoutubeKey,
+      youtubeUrl: finalRtmpUrl,
       startTime: new Date(),
       status: 'ready'
     });
     
     console.log(`[Stream Created] ${streamId} for user ${userId}`);
+    console.log(`[Stream] YouTube Key: ${finalYoutubeKey.substring(0, 10)}...`);
+    console.log(`[Stream] RTMP URL: ${finalRtmpUrl}`);
     
     res.json({
       success: true,
@@ -89,8 +92,9 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // Uruchom FFmpeg do konwersji WebRTC → RTMP
-    const rtmpUrl = youtubeRtmpUrl || `rtmp://a.rtmp.youtube.com/live2/${youtubeKey}`;
+    // Użyj URL z danych streamu lub przekazanych parametrów
+    const rtmpUrl = stream.youtubeUrl || youtubeRtmpUrl || `rtmp://a.rtmp.youtube.com/live2/${youtubeKey}`;
+    console.log(`[WebSocket] Using RTMP URL: ${rtmpUrl}`);
     
     ffmpeg = spawn('ffmpeg', [
       // Input z stdin (dane z WebRTC)
