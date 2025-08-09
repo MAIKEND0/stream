@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server-youtube.js",
+    "start": "node server-test.js",
+    "start:youtube": "node server-youtube.js",
     "start:webrtc": "node server-webrtc.js",
     "start:simple": "node server-simple.js",
     "start:full": "node server.js"
