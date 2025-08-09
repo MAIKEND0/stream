@@ -291,10 +291,11 @@ app.get('/api/streams', (req, res) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
+// Start server - Railway config
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const HOST = '0.0.0.0';
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   console.log(`🚀 YouTube Streaming Server running on port ${PORT}`);
   console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);

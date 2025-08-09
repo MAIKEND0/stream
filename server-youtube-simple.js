@@ -8,6 +8,11 @@ const app = express();
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
+
+// Niektóre load balancery używają /healthz
+app.get('/healthz', (req, res) => {
+  res.status(200).send('OK');
+});
 app.use(cors());
 app.use(express.json());
 
@@ -140,15 +145,17 @@ app.get('/api/streams', (req, res) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
+// Start server - MUSI używać PORT z Railway!
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const HOST = '0.0.0.0'; // Railway wymaga bindowania do wszystkich interfejsów
 
 console.log('Starting server...');
 console.log('PORT from env:', process.env.PORT);
 console.log('Using PORT:', PORT);
+console.log('Binding to HOST:', HOST);
 
-const server = app.listen(PORT, () => {
-  console.log(`🚀 YouTube Streaming Server (Simple) running on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`🚀 YouTube Streaming Server (Simple) running on ${HOST}:${PORT}`);
   console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);
   console.log(`⚠️  This is a MOCK server for testing Railway deployment`);
