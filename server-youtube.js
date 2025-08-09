@@ -226,6 +226,8 @@ app.post('/api/stream/start', async (req, res) => {
   try {
     const { broadcastId } = req.body;
     
+    console.log('[YouTube] Start stream request:', { broadcastId });
+    
     if (!broadcastId) {
       return res.status(400).json({ error: 'broadcastId is required' });
     }
@@ -236,7 +238,7 @@ app.post('/api/stream/start', async (req, res) => {
       part: ['id', 'status']
     });
     
-    console.log('[YouTube] Broadcast transitioned to live');
+    console.log('[YouTube] Broadcast transitioned to live:', response.data);
     
     res.json({
       success: true,
@@ -245,9 +247,15 @@ app.post('/api/stream/start', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('[YouTube] Error starting stream:', error);
+    console.error('[YouTube] Error starting stream:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      broadcastId
+    });
     res.status(500).json({
-      error: error.message || 'Failed to start stream'
+      error: error.message || 'Failed to start stream',
+      details: error.response?.data?.error
     });
   }
 });
@@ -256,6 +264,8 @@ app.post('/api/stream/start', async (req, res) => {
 app.post('/api/stream/stop', async (req, res) => {
   try {
     const { broadcastId } = req.body;
+    
+    console.log('[YouTube] Stop stream request:', { broadcastId });
     
     if (!broadcastId) {
       return res.status(400).json({ error: 'broadcastId is required' });
@@ -267,7 +277,7 @@ app.post('/api/stream/stop', async (req, res) => {
       part: ['id', 'status']
     });
     
-    console.log('[YouTube] Broadcast stopped');
+    console.log('[YouTube] Broadcast stopped:', response.data);
     
     // Remove from active streams
     for (const [key, stream] of activeStreams.entries()) {
@@ -284,9 +294,15 @@ app.post('/api/stream/stop', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('[YouTube] Error stopping stream:', error);
+    console.error('[YouTube] Error stopping stream:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      broadcastId
+    });
     res.status(500).json({
-      error: error.message || 'Failed to stop stream'
+      error: error.message || 'Failed to stop stream',
+      details: error.response?.data?.error
     });
   }
 });
