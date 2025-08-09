@@ -223,9 +223,9 @@ app.post('/api/stream/create', async (req, res) => {
 
 // Start stream (transition to live)
 app.post('/api/stream/start', async (req, res) => {
+  const { broadcastId } = req.body;
+  
   try {
-    const { broadcastId } = req.body;
-    
     console.log('[YouTube] Start stream request:', { broadcastId });
     
     if (!broadcastId) {
