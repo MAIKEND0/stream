@@ -48,7 +48,9 @@ app.get('/test-youtube', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, '0.0.0.0', () => {
+// Railway needs just port, no host
+app.listen(PORT, () => {
   console.log(`✅ Test server running on port ${PORT}`);
   console.log(`📡 Railway domain: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}`);
+  console.log(`🔗 Server should be available at: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:' + PORT}`);
 });
