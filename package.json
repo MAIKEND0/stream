@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server-youtube-simple.js",
+    "start": "node server-ultra-simple.js",
     "start:youtube": "node server-youtube.js",
     "start:webrtc": "node server-webrtc.js",
     "start:simple": "node server-simple.js",

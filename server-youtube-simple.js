@@ -145,21 +145,20 @@ app.get('/api/streams', (req, res) => {
   });
 });
 
-// Start server - MUSI używać PORT z Railway!
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
-const HOST = '0.0.0.0'; // Railway wymaga bindowania do wszystkich interfejsów
+// Start server - Railway fix attempt with IPv6
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 console.log('Starting server...');
 console.log('PORT from env:', process.env.PORT);
 console.log('Using PORT:', PORT);
-console.log('Binding to HOST:', HOST);
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`🚀 YouTube Streaming Server (Simple) running on ${HOST}:${PORT}`);
-  console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
+// Próba bez określania HOST - niech Express sam zdecyduje
+const server = app.listen(PORT, '::', () => {
+  const addr = server.address();
+  console.log(`🚀 Server listening on port ${PORT}`);
+  console.log(`📡 Address info:`, addr);
+  console.log(`📡 Public URL: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);
-  console.log(`⚠️  This is a MOCK server for testing Railway deployment`);
-  console.log('Server is listening on:', server.address());
 });
 
 // Graceful shutdown
