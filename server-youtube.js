@@ -232,19 +232,50 @@ app.post('/api/stream/start', async (req, res) => {
       return res.status(400).json({ error: 'broadcastId is required' });
     }
     
-    const response = await youtube.liveBroadcasts.transition({
-      id: broadcastId,
-      broadcastStatus: 'live',
+    // First check the current status
+    const statusCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
       part: ['id', 'status']
     });
     
-    console.log('[YouTube] Broadcast transitioned to live:', response.data);
+    if (!statusCheck.data.items || statusCheck.data.items.length === 0) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
     
-    res.json({
-      success: true,
-      status: response.data.status?.lifeCycleStatus,
-      message: 'Stream is now live!'
-    });
+    const currentStatus = statusCheck.data.items[0].status?.lifeCycleStatus;
+    console.log('[YouTube] Current broadcast status:', currentStatus);
+    
+    // Check if we can transition to live
+    if (currentStatus === 'ready' || currentStatus === 'testing') {
+      const response = await youtube.liveBroadcasts.transition({
+        id: broadcastId,
+        broadcastStatus: 'live',
+        part: ['id', 'status']
+      });
+      
+      console.log('[YouTube] Broadcast transitioned to live:', response.data);
+      
+      res.json({
+        success: true,
+        status: response.data.status?.lifeCycleStatus,
+        message: 'Stream is now live!'
+      });
+    } else if (currentStatus === 'live') {
+      // Already live
+      res.json({
+        success: true,
+        status: currentStatus,
+        message: 'Stream is already live!'
+      });
+    } else {
+      // Cannot transition from current state
+      console.log('[YouTube] Cannot transition to live from current state:', currentStatus);
+      res.status(400).json({
+        error: 'Cannot start stream',
+        details: `Broadcast is in ${currentStatus} state. It must be in ready or testing state to go live.`,
+        currentStatus
+      });
+    }
     
   } catch (error) {
     console.error('[YouTube] Error starting stream:', {
@@ -271,15 +302,33 @@ app.post('/api/stream/stop', async (req, res) => {
       return res.status(400).json({ error: 'broadcastId is required' });
     }
     
-    const response = await youtube.liveBroadcasts.transition({
-      id: broadcastId,
-      broadcastStatus: 'complete',
+    // First check the current status
+    const statusCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
       part: ['id', 'status']
     });
     
-    console.log('[YouTube] Broadcast stopped:', response.data);
+    if (!statusCheck.data.items || statusCheck.data.items.length === 0) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
     
-    // Remove from active streams
+    const currentStatus = statusCheck.data.items[0].status?.lifeCycleStatus;
+    console.log('[YouTube] Current broadcast status:', currentStatus);
+    
+    // Only transition to complete if the broadcast is currently live
+    if (currentStatus === 'live') {
+      const response = await youtube.liveBroadcasts.transition({
+        id: broadcastId,
+        broadcastStatus: 'complete',
+        part: ['id', 'status']
+      });
+      
+      console.log('[YouTube] Broadcast stopped:', response.data);
+    } else {
+      console.log('[YouTube] Broadcast not in live state, skipping transition. Current status:', currentStatus);
+    }
+    
+    // Remove from active streams regardless
     for (const [key, stream] of activeStreams.entries()) {
       if (stream.broadcastId === broadcastId) {
         activeStreams.delete(key);
@@ -289,8 +338,8 @@ app.post('/api/stream/stop', async (req, res) => {
     
     res.json({
       success: true,
-      status: response.data.status?.lifeCycleStatus,
-      message: 'Stream stopped'
+      status: currentStatus,
+      message: 'Stream stop request processed'
     });
     
   } catch (error) {
@@ -303,6 +352,40 @@ app.post('/api/stream/stop', async (req, res) => {
     res.status(500).json({
       error: error.message || 'Failed to stop stream',
       details: error.response?.data?.error
+    });
+  }
+});
+
+// Get broadcast status
+app.get('/api/stream/status/:broadcastId', async (req, res) => {
+  try {
+    const { broadcastId } = req.params;
+    
+    const statusCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'snippet']
+    });
+    
+    if (!statusCheck.data.items || statusCheck.data.items.length === 0) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = statusCheck.data.items[0];
+    res.json({
+      success: true,
+      broadcastId: broadcast.id,
+      status: broadcast.status?.lifeCycleStatus,
+      recordingStatus: broadcast.status?.recordingStatus,
+      title: broadcast.snippet?.title,
+      scheduledStartTime: broadcast.snippet?.scheduledStartTime,
+      actualStartTime: broadcast.snippet?.actualStartTime,
+      actualEndTime: broadcast.snippet?.actualEndTime
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Error getting status:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to get broadcast status'
     });
   }
 });
