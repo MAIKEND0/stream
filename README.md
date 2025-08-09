@@ -1,60 +1,77 @@
-# 🎮 eFootball Streaming Server
+# 📺 eFootball YouTube Streaming Server
 
-RTMP Media Server dla streamingu meczów eFootball na YouTube.
+Serwer do obsługi streamingu z aplikacji mobilnej na YouTube Live przez API.
 
 ## 🚀 Deploy na Railway
 
-### 1. Przygotowanie
-```bash
-cd railway-streaming-server
-git init
-git add .
-git commit -m "Initial streaming server"
+### 1. Google Cloud Console Setup
+
+1. Wejdź na [Google Cloud Console](https://console.cloud.google.com)
+2. Włącz YouTube Data API v3
+3. Utwórz OAuth 2.0 Client ID
+4. **WAŻNE:** Dodaj Authorized redirect URIs:
+   - `https://stream-production-3d38.up.railway.app/auth/youtube/callback`
+   - `http://localhost:3000/auth/youtube/callback`
+
+### 2. Railway Environment Variables
+
+```env
+YOUTUBE_CLIENT_ID=your_client_id_from_google
+YOUTUBE_CLIENT_SECRET=your_client_secret_from_google
+YOUTUBE_REDIRECT_URI=https://stream-production-3d38.up.railway.app/auth/youtube/callback
+YOUTUBE_ACCESS_TOKEN=(będzie po autoryzacji)
+YOUTUBE_REFRESH_TOKEN=(będzie po autoryzacji)
 ```
 
-### 2. Deploy
-```bash
-# Zainstaluj Railway CLI
-npm install -g @railway/cli
+### 3. Pierwsza autoryzacja
 
-# Zaloguj się
-railway login
-
-# Stwórz nowy projekt
-railway new
-
-# Deploy
-railway up
-```
-
-### 3. Konfiguracja
-W Railway Dashboard ustaw zmienne:
-- Żadne nie są wymagane! Server automatycznie używa Railway domain
+1. Deploy na Railway
+2. Wejdź na: `https://stream-production-3d38.up.railway.app/auth/youtube`
+3. Zaloguj się na konto YouTube gdzie chcesz streamować
+4. Skopiuj tokeny z ekranu
+5. Dodaj tokeny do Railway environment variables
+6. Zrestartuj serwer
 
 ## 📡 Jak używać
 
-### Dla Gracza:
+### Z aplikacji iOS:
 
-1. **Idź na:** efootballmobilepolska.pl/stream
-2. **Kliknij:** "Rozpocznij Stream"
-3. **Dostaniesz:**
+1. **Aplikacja wysyła** request do `/api/stream/create`
+2. **Serwer tworzy** stream na YouTube i zwraca:
+   ```json
+   {
+     "streamKey": "xxxx-xxxx-xxxx-xxxx",
+     "broadcastId": "abc123",
+     "watchUrl": "https://youtube.com/watch?v=abc123"
+   }
    ```
-   RTMP URL: rtmp://your-app.up.railway.app/live/user_123_xxx
+3. **iOS streamuje** przez RTMP na:
    ```
-4. **W OBS:**
-   - Settings → Stream
-   - Service: Custom
-   - Server: `rtmp://your-app.up.railway.app/live/`
-   - Stream Key: `user_123_xxx`
-5. **Start Streaming w OBS**
+   rtmp://a.rtmp.youtube.com/live2/{streamKey}
+   ```
+4. **Stream pojawia się** automatycznie na YouTube!
 
 ### API Endpoints:
 
-- `GET /` - Info o serwerze
+#### Health Check
+- `GET /` - Info o serwerze z statusem YouTube auth
 - `GET /health` - Status serwera
-- `POST /api/stream/create` - Tworzy nowy stream
-- `POST /api/stream/start` - Rozpoczyna retransmisję
-- `POST /api/stream/stop` - Zatrzymuje stream
+
+#### YouTube OAuth
+- `GET /auth/youtube` - Rozpocznij autoryzację OAuth
+- `GET /auth/youtube/callback` - Callback z tokenami
+
+#### Streaming
+- `POST /api/stream/create` - Tworzy stream na YouTube
+  ```json
+  Body: {
+    "title": "🔴 LIVE - eFootball Mobile",
+    "description": "Opis transmisji",
+    "privacy": "public"
+  }
+  ```
+- `POST /api/stream/start` - Przełącza stream w tryb live
+- `POST /api/stream/stop` - Kończy transmisję
 - `GET /api/streams` - Lista aktywnych streamów
 
 ## 🔧 Lokalne testowanie
