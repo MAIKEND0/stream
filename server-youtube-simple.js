@@ -145,20 +145,19 @@ app.get('/api/streams', (req, res) => {
   });
 });
 
-// Start server - Railway fix attempt with IPv6
-const PORT = parseInt(process.env.PORT || '3000', 10);
+// Start server - tak jak w ultra-simple który DZIAŁA!
+const PORT = process.env.PORT || 3000;
 
 console.log('Starting server...');
 console.log('PORT from env:', process.env.PORT);
 console.log('Using PORT:', PORT);
 
-// Próba bez określania HOST - niech Express sam zdecyduje
-const server = app.listen(PORT, '::', () => {
-  const addr = server.address();
-  console.log(`🚀 Server listening on port ${PORT}`);
-  console.log(`📡 Address info:`, addr);
+// Bez określania HOST - to działa w ultra-simple
+const server = app.listen(PORT, () => {
+  console.log(`🚀 YouTube Streaming Server listening on port ${PORT}`);
   console.log(`📡 Public URL: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);
+  console.log('Server address:', server.address());
 });
 
 // Graceful shutdown
