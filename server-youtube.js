@@ -4,6 +4,16 @@ const { google } = require('googleapis');
 require('dotenv').config();
 
 const app = express();
+
+// Health check endpoints MUST be first (before any middleware)
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+app.get('/healthz', (req, res) => {
+  res.status(200).send('OK');
+});
+
 app.use(cors());
 app.use(express.json());
 
@@ -45,7 +55,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health-detailed', (req, res) => {
   res.json({ 
     status: 'healthy',
     uptime: process.uptime(),
@@ -293,9 +303,9 @@ app.get('/api/streams', (req, res) => {
 
 // Start server - Railway config
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
-const HOST = '0.0.0.0';
 
-app.listen(PORT, HOST, () => {
+// No HOST binding - Railway works without it
+app.listen(PORT, () => {
   console.log(`🚀 YouTube Streaming Server running on port ${PORT}`);
   console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);

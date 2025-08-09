@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server-youtube-simple.js",
+    "start": "node server-youtube.js",
     "start:youtube": "node server-youtube.js",
     "start:webrtc": "node server-webrtc.js",
     "start:simple": "node server-simple.js",
-    "start:full": "node server.js"
+    "start:full": "node server.js",
+    "start:youtube-simple": "node server-youtube-simple.js",
+    "start:ultra": "node server-ultra-simple.js"
   },
   "dependencies": {
     "express": "^4.18.2",
