@@ -56,16 +56,25 @@ app.get('/health', (req, res) => {
 
 // YouTube OAuth
 app.get('/auth/youtube', (req, res) => {
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: [
-      'https://www.googleapis.com/auth/youtube',
-      'https://www.googleapis.com/auth/youtube.force-ssl',
-      'https://www.googleapis.com/auth/youtube.readonly'
-    ],
-    prompt: 'consent'
-  });
-  res.redirect(authUrl);
+  try {
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: [
+        'https://www.googleapis.com/auth/youtube',
+        'https://www.googleapis.com/auth/youtube.force-ssl',
+        'https://www.googleapis.com/auth/youtube.readonly'
+      ],
+      prompt: 'consent'
+    });
+    console.log('[OAuth] Redirecting to:', authUrl);
+    res.redirect(authUrl);
+  } catch (error) {
+    console.error('[OAuth] Error generating auth URL:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate auth URL',
+      details: error.message 
+    });
+  }
 });
 
 app.get('/auth/youtube/callback', async (req, res) => {
@@ -285,7 +294,7 @@ app.get('/api/streams', (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 YouTube Streaming Server running on port ${PORT}`);
   console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);
