@@ -3,6 +3,11 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+
+// Railway health check - musi być PIERWSZY
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 app.use(cors());
 app.use(express.json());
 
@@ -25,7 +30,8 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => {
+// Druga wersja health dla debugowania
+app.get('/health-detailed', (req, res) => {
   res.json({ 
     status: 'healthy',
     uptime: process.uptime(),
@@ -137,11 +143,16 @@ app.get('/api/streams', (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+console.log('Starting server...');
+console.log('PORT from env:', process.env.PORT);
+console.log('Using PORT:', PORT);
+
+const server = app.listen(PORT, () => {
   console.log(`🚀 YouTube Streaming Server (Simple) running on port ${PORT}`);
   console.log(`📡 Public URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:' + PORT}`);
   console.log(`📺 YouTube auth: ${process.env.YOUTUBE_ACCESS_TOKEN ? '✅ Connected' : '❌ Not connected'}`);
   console.log(`⚠️  This is a MOCK server for testing Railway deployment`);
+  console.log('Server is listening on:', server.address());
 });
 
 // Graceful shutdown
