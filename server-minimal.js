@@ -13,9 +13,11 @@ app.get('/health', (req, res) => {
 // Railway wymaga PORT ze zmiennej środowiskowej
 const port = process.env.PORT || 8080;
 
-// Nasłuchuj na wszystkich interfejsach dla Railway
-const server = app.listen(port, '::', () => {
+// Railway - nie określaj hosta
+const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
+  console.log(`Environment PORT: ${process.env.PORT}`);
+  console.log(`Using port: ${port}`);
 });
 
 // Graceful shutdown
