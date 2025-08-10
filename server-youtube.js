@@ -1422,25 +1422,49 @@ app.post('/api/stream/force-live', async (req, res) => {
       });
       
     } catch (transitionError) {
-      // Sprawdź dlaczego nie działa
+      // Szczegółowa diagnostyka dlaczego nie można przejść do live
       const streamId = broadcast.contentDetails?.boundStreamId;
       let streamInfo = null;
+      let streamDetails = null;
       
       if (streamId) {
         const streamCheck = await youtube.liveStreams.list({
           id: [streamId],
-          part: ['id', 'status']
+          part: ['id', 'status', 'cdn']
         });
-        streamInfo = streamCheck.data.items?.[0]?.status;
+        streamDetails = streamCheck.data.items?.[0];
+        streamInfo = streamDetails?.status;
       }
+      
+      console.log('[YouTube] Transition failed - Stream diagnostics:', {
+        streamId,
+        streamStatus: streamInfo?.streamStatus,
+        healthStatus: streamInfo?.healthStatus?.status,
+        expectedStreamKey: streamDetails?.cdn?.ingestionInfo?.streamName,
+        rtmpUrl: streamDetails?.cdn?.ingestionInfo?.ingestionAddress
+      });
       
       return res.status(400).json({
         error: 'Cannot transition to live',
         currentStatus: currentStatus,
-        streamHealth: streamInfo?.healthStatus,
+        streamDiagnostics: {
+          streamId,
+          streamStatus: streamInfo?.streamStatus,                    // 'active' | 'inactive' | 'created'
+          healthStatus: streamInfo?.healthStatus?.status,           // 'noData' | 'good' | 'ok'
+          expectedStreamKey: streamDetails?.cdn?.ingestionInfo?.streamName,
+          expectedRtmpUrl: `${streamDetails?.cdn?.ingestionInfo?.ingestionAddress}/${streamDetails?.cdn?.ingestionInfo?.streamName}`,
+          lastHealthUpdate: streamInfo?.healthStatus?.lastUpdateTimeSeconds
+        },
         hint: streamInfo?.healthStatus?.status === 'noData' 
-          ? 'Stream is not receiving data. Check iOS app.'
-          : 'Wait for stream to stabilize'
+          ? `iOS nie wysyła danych na stream key: ${streamDetails?.cdn?.ingestionInfo?.streamName}. Sprawdź czy extension używa właściwego klucza.`
+          : `Status: ${streamInfo?.streamStatus}, Health: ${streamInfo?.healthStatus?.status}. Odczekaj chwilę i spróbuj ponownie.`,
+        troubleshooting: [
+          `Expected stream key: ${streamDetails?.cdn?.ingestionInfo?.streamName}`,
+          `Expected RTMP URL: ${streamDetails?.cdn?.ingestionInfo?.ingestionAddress}`,
+          'Sprawdź logi iOS extension - czy używa tego samego stream key?',
+          'Zatrzymaj i uruchom ponownie broadcast na iOS',
+          'Poczekaj 10-15 sekund po rozpoczęciu broadcastu zanim klikniesz force-live'
+        ]
       });
     }
     
@@ -1450,6 +1474,71 @@ app.post('/api/stream/force-live', async (req, res) => {
       error: error.message,
       details: error.response?.data?.error
     });
+  }
+});
+
+// ENDPOINT - Sprawdź status konkretnego broadcastu
+app.get('/api/stream/status/:broadcastId', async (req, res) => {
+  const { broadcastId } = req.params;
+  
+  try {
+    // Pobierz broadcast
+    const broadcastCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'contentDetails', 'snippet']
+    });
+    
+    if (!broadcastCheck.data.items?.length) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = broadcastCheck.data.items[0];
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    
+    let streamDetails = null;
+    if (streamId) {
+      const streamCheck = await youtube.liveStreams.list({
+        id: [streamId],
+        part: ['id', 'status', 'cdn']
+      });
+      streamDetails = streamCheck.data.items?.[0];
+    }
+    
+    res.json({
+      broadcastId: broadcast.id,
+      title: broadcast.snippet?.title,
+      broadcastStatus: broadcast.status?.lifeCycleStatus,
+      watchUrl: `https://youtube.com/watch?v=${broadcast.id}`,
+      stream: streamDetails ? {
+        streamId: streamDetails.id,
+        streamStatus: streamDetails.status?.streamStatus,
+        healthStatus: streamDetails.status?.healthStatus?.status,
+        lastHealthUpdate: streamDetails.status?.healthStatus?.lastUpdateTimeSeconds,
+        expectedStreamKey: streamDetails.cdn?.ingestionInfo?.streamName,
+        rtmpUrl: streamDetails.cdn?.ingestionInfo?.ingestionAddress,
+        isReceivingData: streamDetails.status?.streamStatus === 'active'
+      } : null,
+      canGoLive: broadcast.status?.lifeCycleStatus === 'ready' && 
+                 streamDetails?.status?.streamStatus === 'active',
+      recommendations: [
+        broadcast.status?.lifeCycleStatus !== 'ready' 
+          ? `Broadcast status is ${broadcast.status?.lifeCycleStatus}, expected 'ready'`
+          : null,
+        !streamDetails 
+          ? 'No stream bound to broadcast'
+          : null,
+        streamDetails?.status?.streamStatus !== 'active'
+          ? `Stream status is ${streamDetails?.status?.streamStatus}, expected 'active'`
+          : null,
+        streamDetails?.status?.healthStatus?.status === 'noData'
+          ? `No data received on stream key: ${streamDetails?.cdn?.ingestionInfo?.streamName}`
+          : null
+      ].filter(Boolean)
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Status check error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
