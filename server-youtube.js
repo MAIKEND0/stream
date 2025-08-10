@@ -812,8 +812,8 @@ app.post('/api/stream/use-existing', async (req, res) => {
     // Sprawdź czy jest już broadcast powiązany z tym streamem
     const broadcastsResponse = await youtube.liveBroadcasts.list({
       part: ['id', 'status', 'contentDetails', 'snippet'],
-      mine: true,
-      broadcastStatus: 'upcoming' // Szukaj tylko nadchodzących
+      mine: true
+      // Usunięto broadcastStatus - nie można używać razem z mine
     });
     
     // Znajdź broadcast który używa tego streamu
