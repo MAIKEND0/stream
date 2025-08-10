@@ -64,6 +64,12 @@ app.get('/health-detailed', (req, res) => {
   });
 });
 
+// Ready check for YouTube auth
+app.get('/ready', (req, res) => {
+  const ready = !!(process.env.YOUTUBE_ACCESS_TOKEN && process.env.YOUTUBE_REFRESH_TOKEN);
+  return ready ? res.status(200).send('READY') : res.status(503).send('NOT_READY');
+});
+
 // YouTube OAuth
 app.get('/auth/youtube', (req, res) => {
   try {
@@ -557,8 +563,8 @@ app.post('/api/stream/stop', async (req, res) => {
   }
 });
 
-// Get broadcast status
-app.get('/api/stream/status/:broadcastId', async (req, res) => {
+// Get broadcast status (simplified, without stream health)
+app.get('/api/broadcast/status/:broadcastId', async (req, res) => {
   try {
     const { broadcastId } = req.params;
     
@@ -584,7 +590,7 @@ app.get('/api/stream/status/:broadcastId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('[YouTube] Error getting status:', error);
+    console.error('[YouTube] Error getting broadcast status:', error);
     res.status(500).json({
       error: error.message || 'Failed to get broadcast status'
     });
