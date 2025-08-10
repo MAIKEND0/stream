@@ -215,7 +215,14 @@ app.post('/api/stream/create', async (req, res) => {
     res.json({
       success: true,
       ...streamInfo,
-      message: 'Stream created successfully! Use the streamKey in your iOS app.'
+      message: 'Stream created successfully! Use the streamKey in your iOS app.',
+      instructions: {
+        step1: 'Configure your iOS app with the RTMP URL and stream key',
+        step2: 'Start streaming from your iOS app to the RTMP URL',
+        step3: 'Wait 5-10 seconds for stream to initialize',
+        step4: 'Call /api/stream/start to go live',
+        important: 'You MUST start streaming data BEFORE calling /api/stream/start'
+      }
     });
     
   } catch (error) {
@@ -550,6 +557,72 @@ app.post('/api/stream/stop', async (req, res) => {
       error: error.message || 'Failed to stop stream',
       details: error.response?.data?.error
     });
+  }
+});
+
+// Debug endpoint - check if stream is receiving data
+app.get('/api/stream/debug/:broadcastId', async (req, res) => {
+  try {
+    const { broadcastId } = req.params;
+    
+    // Get broadcast with stream binding
+    const broadcastCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'contentDetails', 'snippet']
+    });
+    
+    if (!broadcastCheck.data.items?.length) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = broadcastCheck.data.items[0];
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    
+    let streamDebugInfo = null;
+    
+    if (streamId) {
+      const streamCheck = await youtube.liveStreams.list({
+        id: [streamId],
+        part: ['id', 'status', 'cdn']
+      });
+      
+      if (streamCheck.data.items?.length) {
+        const stream = streamCheck.data.items[0];
+        streamDebugInfo = {
+          streamId: stream.id,
+          streamStatus: stream.status?.streamStatus,
+          healthStatus: stream.status?.healthStatus,
+          rtmpIngestionAddress: stream.cdn?.ingestionInfo?.ingestionAddress,
+          rtmpStreamName: stream.cdn?.ingestionInfo?.streamName,
+          backupIngestionAddress: stream.cdn?.ingestionInfo?.backupIngestionAddress,
+          resolution: stream.cdn?.resolution,
+          frameRate: stream.cdn?.frameRate,
+          isReceivingData: stream.status?.streamStatus === 'active',
+          troubleshooting: {
+            ifNotActive: [
+              'Ensure iOS app is using RTMP URL: ' + stream.cdn?.ingestionInfo?.ingestionAddress,
+              'Stream key (streamName): ' + stream.cdn?.ingestionInfo?.streamName,
+              'iOS app must be actively streaming video data',
+              'Check iOS app logs for RTMP connection errors'
+            ]
+          }
+        };
+      }
+    }
+    
+    res.json({
+      broadcastId: broadcast.id,
+      broadcastStatus: broadcast.status?.lifeCycleStatus,
+      streamBound: !!streamId,
+      streamDebugInfo,
+      nextSteps: streamDebugInfo?.isReceivingData 
+        ? 'Stream is active! You can call /api/stream/start' 
+        : 'Stream is NOT receiving data. Check iOS app RTMP configuration.'
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Debug error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
