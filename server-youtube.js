@@ -235,18 +235,133 @@ app.post('/api/stream/start', async (req, res) => {
     // First check the current status
     const statusCheck = await youtube.liveBroadcasts.list({
       id: [broadcastId],
-      part: ['id', 'status']
+      part: ['id', 'status', 'contentDetails']
     });
     
     if (!statusCheck.data.items || statusCheck.data.items.length === 0) {
       return res.status(404).json({ error: 'Broadcast not found' });
     }
     
-    const currentStatus = statusCheck.data.items[0].status?.lifeCycleStatus;
-    console.log('[YouTube] Current broadcast status:', currentStatus);
+    const broadcast = statusCheck.data.items[0];
+    const currentStatus = broadcast.status?.lifeCycleStatus;
+    const streamId = broadcast.contentDetails?.boundStreamId;
     
-    // Check if we can transition to live
-    if (currentStatus === 'ready' || currentStatus === 'testing') {
+    console.log('[YouTube] Current broadcast status:', currentStatus);
+    console.log('[YouTube] Bound stream ID:', streamId);
+    
+    // Check stream health if we have a stream ID
+    if (streamId) {
+      const streamCheck = await youtube.liveStreams.list({
+        id: [streamId],
+        part: ['id', 'status']
+      });
+      
+      if (streamCheck.data.items && streamCheck.data.items.length > 0) {
+        const streamStatus = streamCheck.data.items[0].status;
+        console.log('[YouTube] Stream health:', streamStatus);
+        
+        // Check if stream is active (receiving data)
+        if (streamStatus?.streamStatus !== 'active') {
+          return res.status(400).json({
+            error: 'Stream not active',
+            details: 'The stream is not receiving data. Please ensure your streaming software is connected and sending data to the RTMP URL.',
+            streamStatus: streamStatus?.streamStatus,
+            healthStatus: streamStatus?.healthStatus
+          });
+        }
+      }
+    }
+    
+    // Handle different states
+    if (currentStatus === 'ready') {
+      // Wait for stream to become active before transitioning
+      console.log('[YouTube] Waiting for stream to become active...');
+      
+      let retries = 0;
+      const maxRetries = 30; // 30 seconds total
+      let streamActive = false;
+      
+      while (retries < maxRetries && !streamActive) {
+        // Check stream status
+        if (streamId) {
+          const streamCheck = await youtube.liveStreams.list({
+            id: [streamId],
+            part: ['id', 'status']
+          });
+          
+          if (streamCheck.data.items && streamCheck.data.items.length > 0) {
+            const streamStatus = streamCheck.data.items[0].status;
+            console.log(`[YouTube] Retry ${retries + 1}/${maxRetries} - Stream status:`, streamStatus?.streamStatus);
+            
+            if (streamStatus?.streamStatus === 'active') {
+              streamActive = true;
+              console.log('[YouTube] Stream is now active!');
+              break;
+            }
+          }
+        }
+        
+        retries++;
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      }
+      
+      if (!streamActive) {
+        return res.status(400).json({
+          error: 'Stream not active',
+          details: 'The stream did not become active within 30 seconds. Please ensure:\n1. You are streaming to the correct RTMP URL\n2. Your streaming key is correct\n3. Your streaming software is actively sending data',
+          troubleshooting: {
+            rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+            streamKey: 'Check your stream key in YouTube Studio',
+            obs: 'In OBS, click "Start Streaming" and wait a few seconds'
+          }
+        });
+      }
+      
+      // First transition to testing to verify stream
+      console.log('[YouTube] Transitioning to testing state first...');
+      
+      try {
+        await youtube.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: 'testing',
+          part: ['id', 'status']
+        });
+        
+        console.log('[YouTube] Successfully transitioned to testing');
+        
+        // Wait a moment for the transition to complete
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Now transition to live
+        const liveResponse = await youtube.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: 'live',
+          part: ['id', 'status']
+        });
+        
+        console.log('[YouTube] Broadcast transitioned to live:', liveResponse.data);
+        
+        res.json({
+          success: true,
+          status: liveResponse.data.status?.lifeCycleStatus,
+          message: 'Stream is now live!'
+        });
+      } catch (transitionError) {
+        // If transition fails, provide helpful error message
+        if (transitionError.response?.status === 403) {
+          return res.status(400).json({
+            error: 'Cannot start stream',
+            details: 'Failed to transition to live. The stream may need more time to stabilize.',
+            troubleshooting: {
+              retry: 'Wait a few seconds and try again',
+              verify: 'Check YouTube Studio to see if the stream is already live'
+            }
+          });
+        }
+        throw transitionError;
+      }
+    } else if (currentStatus === 'testing') {
+      // Already in testing, go directly to live
       const response = await youtube.liveBroadcasts.transition({
         id: broadcastId,
         broadcastStatus: 'live',
@@ -286,6 +401,79 @@ app.post('/api/stream/start', async (req, res) => {
     });
     res.status(500).json({
       error: error.message || 'Failed to start stream',
+      details: error.response?.data?.error
+    });
+  }
+});
+
+// Get stream status
+app.get('/api/stream/status/:broadcastId', async (req, res) => {
+  try {
+    const { broadcastId } = req.params;
+    
+    console.log('[YouTube] Get stream status:', { broadcastId });
+    
+    if (!broadcastId) {
+      return res.status(400).json({ error: 'broadcastId is required' });
+    }
+    
+    // Get broadcast details
+    const broadcastCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'contentDetails', 'snippet']
+    });
+    
+    if (!broadcastCheck.data.items || broadcastCheck.data.items.length === 0) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = broadcastCheck.data.items[0];
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    
+    let streamHealth = null;
+    
+    // Get stream health if available
+    if (streamId) {
+      const streamCheck = await youtube.liveStreams.list({
+        id: [streamId],
+        part: ['id', 'status', 'cdn']
+      });
+      
+      if (streamCheck.data.items && streamCheck.data.items.length > 0) {
+        const stream = streamCheck.data.items[0];
+        streamHealth = {
+          streamStatus: stream.status?.streamStatus,
+          healthStatus: stream.status?.healthStatus,
+          ingestionInfo: {
+            streamName: stream.cdn?.ingestionInfo?.streamName,
+            ingestionAddress: stream.cdn?.ingestionInfo?.ingestionAddress
+          }
+        };
+      }
+    }
+    
+    res.json({
+      broadcastId: broadcast.id,
+      status: broadcast.status?.lifeCycleStatus,
+      title: broadcast.snippet?.title,
+      description: broadcast.snippet?.description,
+      scheduledStartTime: broadcast.snippet?.scheduledStartTime,
+      actualStartTime: broadcast.snippet?.actualStartTime,
+      streamId: streamId,
+      streamHealth: streamHealth,
+      watchUrl: `https://youtube.com/watch?v=${broadcastId}`,
+      canGoLive: streamHealth?.streamStatus === 'active' && 
+                 (broadcast.status?.lifeCycleStatus === 'ready' || 
+                  broadcast.status?.lifeCycleStatus === 'testing')
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Error getting stream status:', {
+      message: error.message,
+      response: error.response?.data
+    });
+    res.status(500).json({
+      error: error.message || 'Failed to get stream status',
       details: error.response?.data?.error
     });
   }
