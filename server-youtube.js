@@ -697,7 +697,7 @@ app.get('/api/streams', (req, res) => {
 
 // Test endpoint for hardcoded stream key
 app.post('/api/stream/test-key', async (req, res) => {
-  const testKey = 'c6sq-pzqy-8d5d-d2q2-d0gj';
+  const testKey = '3s76-msvs-etfm-5vff-24z1';
   
   console.log('[YouTube] Testing hardcoded stream key:', testKey);
   
@@ -776,7 +776,7 @@ app.post('/api/stream/test-key', async (req, res) => {
 
 // Użyj istniejącego stream key (twój hardcoded key)
 app.post('/api/stream/use-existing', async (req, res) => {
-  const existingKey = 'c6sq-pzqy-8d5d-d2q2-d0gj'; // Aktywny klucz z YouTube
+  const existingKey = '3s76-msvs-etfm-5vff-24z1'; // Aktywny klucz z YouTube
   
   try {
     console.log('[YouTube] Using existing stream key:', existingKey);
@@ -967,6 +967,283 @@ app.get('/api/stream/check-data/:broadcastId', async (req, res) => {
     
   } catch (error) {
     console.error('[YouTube] Error checking data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Force recreate stream with the same key
+app.post('/api/stream/force-recreate', async (req, res) => {
+  const existingKey = '3s76-msvs-etfm-5vff-24z1';
+  
+  try {
+    console.log('[YouTube] Force recreating stream and broadcast...');
+    
+    // Step 1: Clean up any existing broadcasts in ready/testing state
+    const broadcastsResponse = await youtube.liveBroadcasts.list({
+      part: ['id', 'status', 'contentDetails'],
+      mine: true
+    });
+    
+    for (const broadcast of (broadcastsResponse.data.items || [])) {
+      if (broadcast.status?.lifeCycleStatus === 'ready' || 
+          broadcast.status?.lifeCycleStatus === 'testing') {
+        try {
+          // Try to delete or complete the broadcast
+          await youtube.liveBroadcasts.delete({
+            id: broadcast.id
+          });
+          console.log(`[YouTube] Deleted old broadcast: ${broadcast.id}`);
+        } catch (e) {
+          console.log(`[YouTube] Could not delete broadcast ${broadcast.id}: ${e.message}`);
+        }
+      }
+    }
+    
+    // Step 2: Create a fresh broadcast
+    const broadcast = await youtube.liveBroadcasts.insert({
+      part: ['snippet', 'status', 'contentDetails'],
+      requestBody: {
+        snippet: {
+          title: req.body.title || `eFootball Mobile - ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL')}`,
+          description: req.body.description || 'Transmisja na żywo z gry eFootball Mobile',
+          scheduledStartTime: new Date().toISOString() // Start immediately
+        },
+        status: {
+          privacyStatus: 'public',
+          selfDeclaredMadeForKids: false
+        },
+        contentDetails: {
+          enableAutoStart: true,  // KEY CHANGE: Auto-start when stream is detected
+          enableAutoStop: false,   // Don't auto-stop
+          recordFromStart: true,
+          monitorStream: {
+            enableMonitorStream: true,
+            broadcastStreamDelayMs: 0
+          },
+          latencyPreference: 'low' // Low latency mode
+        }
+      }
+    });
+    
+    console.log('[YouTube] New broadcast created:', broadcast.data.id);
+    
+    // Step 3: Find the stream with the hardcoded key
+    const streamsResponse = await youtube.liveStreams.list({
+      part: ['id', 'cdn', 'status'],
+      mine: true
+    });
+    
+    const existingStream = streamsResponse.data.items?.find(stream => 
+      stream.cdn?.ingestionInfo?.streamName === existingKey
+    );
+    
+    if (!existingStream) {
+      // If no stream exists with this key, create one
+      console.log('[YouTube] Creating new stream with key...');
+      const newStream = await youtube.liveStreams.insert({
+        part: ['snippet', 'cdn', 'status'],
+        requestBody: {
+          snippet: {
+            title: 'eFootball Mobile Stream',
+            description: 'Persistent stream for eFootball Mobile'
+          },
+          cdn: {
+            frameRate: '30fps',
+            ingestionType: 'rtmp',
+            resolution: '720p',
+            ingestionInfo: {
+              streamName: existingKey  // Use the hardcoded key
+            }
+          }
+        }
+      });
+      
+      // Bind new stream to broadcast
+      await youtube.liveBroadcasts.bind({
+        part: ['id'],
+        id: broadcast.data.id,
+        streamId: newStream.data.id
+      });
+      
+      console.log('[YouTube] Created and bound new stream');
+    } else {
+      // Bind existing stream to new broadcast
+      await youtube.liveBroadcasts.bind({
+        part: ['id'],
+        id: broadcast.data.id,
+        streamId: existingStream.id
+      });
+      
+      console.log('[YouTube] Bound existing stream to new broadcast');
+    }
+    
+    res.json({
+      success: true,
+      broadcastId: broadcast.data.id,
+      streamKey: existingKey,
+      rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+      watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
+      message: 'Fresh broadcast created! Stream will auto-start when data is received.',
+      instructions: {
+        step1: '✅ Broadcast is ready with auto-start enabled',
+        step2: '✅ Your iOS app should already be streaming',
+        step3: '✅ YouTube will automatically go live when stream is detected',
+        step4: 'If not live in 10 seconds, restart the iOS broadcast'
+      }
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Force recreate error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data?.error
+    });
+  }
+});
+
+// Improved start stream endpoint with better error handling
+app.post('/api/stream/start-simplified', async (req, res) => {
+  const { broadcastId } = req.body;
+  
+  try {
+    console.log('[YouTube] Simplified start for broadcast:', broadcastId);
+    
+    // Skip all the checking and just try to transition
+    // YouTube will handle the validation
+    
+    // Try to go directly to live
+    try {
+      const response = await youtube.liveBroadcasts.transition({
+        id: broadcastId,
+        broadcastStatus: 'live',
+        part: ['id', 'status']
+      });
+      
+      console.log('[YouTube] Successfully transitioned to live!');
+      
+      return res.json({
+        success: true,
+        status: response.data.status?.lifeCycleStatus,
+        message: '🎉 Stream is now LIVE on YouTube!'
+      });
+      
+    } catch (directError) {
+      // If direct transition fails, try testing first
+      console.log('[YouTube] Direct to live failed, trying testing first...');
+      
+      try {
+        await youtube.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: 'testing',
+          part: ['id', 'status']
+        });
+        
+        console.log('[YouTube] Transitioned to testing, waiting 2 seconds...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Now try live
+        const liveResponse = await youtube.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: 'live',
+          part: ['id', 'status']
+        });
+        
+        return res.json({
+          success: true,
+          status: liveResponse.data.status?.lifeCycleStatus,
+          message: '🎉 Stream is now LIVE on YouTube!'
+        });
+        
+      } catch (testingError) {
+        throw testingError;
+      }
+    }
+    
+  } catch (error) {
+    console.error('[YouTube] Start simplified error:', error);
+    
+    // Check if it's already live
+    if (error.message?.includes('redundantTransition')) {
+      return res.json({
+        success: true,
+        message: 'Stream is already live!'
+      });
+    }
+    
+    res.status(400).json({
+      error: error.message || 'Failed to start stream',
+      details: error.response?.data?.error,
+      hint: 'Try using /api/stream/force-recreate to create a fresh broadcast'
+    });
+  }
+});
+
+// Quick diagnostic endpoint
+app.get('/api/stream/diagnose', async (req, res) => {
+  try {
+    // List all broadcasts
+    const broadcasts = await youtube.liveBroadcasts.list({
+      part: ['id', 'status', 'snippet', 'contentDetails'],
+      mine: true
+    });
+    
+    // List all streams
+    const streams = await youtube.liveStreams.list({
+      part: ['id', 'cdn', 'status'],
+      mine: true
+    });
+    
+    const streamKey = '3s76-msvs-etfm-5vff-24z1';
+    const activeStream = streams.data.items?.find(s => 
+      s.cdn?.ingestionInfo?.streamName === streamKey
+    );
+    
+    const activeBroadcasts = broadcasts.data.items?.filter(b => 
+      b.status?.lifeCycleStatus === 'ready' || 
+      b.status?.lifeCycleStatus === 'testing' ||
+      b.status?.lifeCycleStatus === 'live'
+    );
+    
+    res.json({
+      streamKeyStatus: activeStream ? {
+        found: true,
+        streamId: activeStream.id,
+        status: activeStream.status?.streamStatus,
+        health: activeStream.status?.healthStatus?.status,
+        isActive: activeStream.status?.streamStatus === 'active'
+      } : {
+        found: false,
+        message: 'Stream with hardcoded key not found'
+      },
+      
+      activeBroadcasts: activeBroadcasts?.map(b => ({
+        id: b.id,
+        title: b.snippet?.title,
+        status: b.status?.lifeCycleStatus,
+        boundStreamId: b.contentDetails?.boundStreamId,
+        watchUrl: `https://youtube.com/watch?v=${b.id}`,
+        autoStartEnabled: b.contentDetails?.enableAutoStart
+      })) || [],
+      
+      totalBroadcasts: broadcasts.data.items?.length || 0,
+      totalStreams: streams.data.items?.length || 0,
+      
+      recommendations: [
+        activeStream?.status?.streamStatus !== 'active' ? 
+          '⚠️ Stream not active - iOS app may need to restart broadcast' : 
+          '✅ Stream is active',
+        
+        activeBroadcasts?.length === 0 ? 
+          '⚠️ No active broadcasts - use /api/stream/force-recreate' : 
+          '✅ Active broadcast found',
+        
+        activeStream && activeBroadcasts?.some(b => b.contentDetails?.boundStreamId === activeStream.id) ?
+          '✅ Stream is bound to a broadcast' :
+          '⚠️ Stream not bound to any broadcast'
+      ]
+    });
+    
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
