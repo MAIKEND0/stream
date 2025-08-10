@@ -275,37 +275,62 @@ app.post('/api/stream/start', async (req, res) => {
       
       // Wait for stream to become active before transitioning
       console.log('[YouTube] Waiting for stream to become active...');
-      console.log('[YouTube] Will check stream status every second for up to 60 seconds');
+      console.log('[YouTube] Will check stream status every 2 seconds for up to 120 seconds');
       
       let retries = 0;
-      const maxRetries = 60; // 60 seconds total
+      const maxRetries = 60; // 60 checks * 2 seconds = 120 seconds total
       let streamActive = false;
+      let lastHealthStatus = null;
       
       while (retries < maxRetries && !streamActive) {
         // Check stream status
         if (streamId) {
           const streamCheck = await youtube.liveStreams.list({
             id: [streamId],
-            part: ['id', 'status']
+            part: ['id', 'status', 'cdn']
           });
           
           if (streamCheck.data.items && streamCheck.data.items.length > 0) {
-            const streamStatus = streamCheck.data.items[0].status;
-            console.log(`[YouTube] Retry ${retries + 1}/${maxRetries} - Stream status:`, {
+            const stream = streamCheck.data.items[0];
+            const streamStatus = stream.status;
+            const healthStatus = streamStatus?.healthStatus;
+            
+            console.log(`[YouTube] Check ${retries + 1}/${maxRetries} - Stream status:`, {
               streamStatus: streamStatus?.streamStatus,
-              healthStatus: streamStatus?.healthStatus?.status
+              healthStatus: healthStatus?.status,
+              lastUpdated: healthStatus?.lastUpdateTimeSeconds,
+              configurationIssues: healthStatus?.configurationIssues,
+              description: healthStatus?.description
             });
             
-            if (streamStatus?.streamStatus === 'active') {
+            // Check if health status changed
+            if (healthStatus?.status !== lastHealthStatus) {
+              console.log(`[YouTube] Health status changed: ${lastHealthStatus} -> ${healthStatus?.status}`);
+              lastHealthStatus = healthStatus?.status;
+            }
+            
+            // YouTube considers stream active when streamStatus is 'active' 
+            // OR when health status is 'good' or 'ok'
+            if (streamStatus?.streamStatus === 'active' || 
+                healthStatus?.status === 'good' || 
+                healthStatus?.status === 'ok') {
               streamActive = true;
               console.log('[YouTube] ✅ Stream is now active and receiving data!');
               break;
+            }
+            
+            // If we have 'noData' for too long, provide helpful error
+            if (retries > 10 && healthStatus?.status === 'noData') {
+              console.log('[YouTube] ⚠️ Stream created but no data received. Check:');
+              console.log('  1. RTMP URL: rtmp://a.rtmp.youtube.com/live2/' + (stream.cdn?.ingestionInfo?.streamName || 'STREAM_KEY'));
+              console.log('  2. Stream key is correct');
+              console.log('  3. iOS app is actually sending video data');
             }
           }
         }
         
         retries++;
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds between checks
       }
       
       if (!streamActive) {
@@ -668,6 +693,85 @@ app.get('/api/streams', (req, res) => {
     count: streams.length,
     streams
   });
+});
+
+// Test endpoint for hardcoded stream key
+app.post('/api/stream/test-key', async (req, res) => {
+  const testKey = '3s76-msvs-etfm-5vff-24z1';
+  
+  console.log('[YouTube] Testing hardcoded stream key:', testKey);
+  
+  try {
+    // List all active streams to find one with matching key
+    const streamsResponse = await youtube.liveStreams.list({
+      part: ['id', 'status', 'cdn', 'snippet'],
+      mine: true
+    });
+    
+    if (!streamsResponse.data.items || streamsResponse.data.items.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No streams found for this YouTube account'
+      });
+    }
+    
+    // Find stream with matching key
+    const matchingStream = streamsResponse.data.items.find(stream => 
+      stream.cdn?.ingestionInfo?.streamName === testKey
+    );
+    
+    if (matchingStream) {
+      console.log('[YouTube] Found matching stream:', {
+        id: matchingStream.id,
+        title: matchingStream.snippet?.title,
+        status: matchingStream.status?.streamStatus,
+        health: matchingStream.status?.healthStatus?.status
+      });
+      
+      // Find associated broadcast
+      const broadcastsResponse = await youtube.liveBroadcasts.list({
+        part: ['id', 'status', 'contentDetails', 'snippet'],
+        mine: true
+      });
+      
+      const associatedBroadcast = broadcastsResponse.data.items?.find(broadcast =>
+        broadcast.contentDetails?.boundStreamId === matchingStream.id
+      );
+      
+      res.json({
+        success: true,
+        stream: {
+          id: matchingStream.id,
+          streamKey: testKey,
+          status: matchingStream.status?.streamStatus,
+          health: matchingStream.status?.healthStatus,
+          rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2/' + testKey
+        },
+        broadcast: associatedBroadcast ? {
+          id: associatedBroadcast.id,
+          title: associatedBroadcast.snippet?.title,
+          status: associatedBroadcast.status?.lifeCycleStatus,
+          watchUrl: `https://youtube.com/watch?v=${associatedBroadcast.id}`
+        } : null,
+        message: 'Stream key is valid! Use the RTMP URL in your iOS app.'
+      });
+    } else {
+      res.json({
+        success: false,
+        message: 'Stream key not found. Available stream keys:',
+        availableKeys: streamsResponse.data.items.map(s => ({
+          key: s.cdn?.ingestionInfo?.streamName,
+          title: s.snippet?.title,
+          status: s.status?.streamStatus
+        }))
+      });
+    }
+  } catch (error) {
+    console.error('[YouTube] Error testing stream key:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to test stream key'
+    });
+  }
 });
 
 // Start server - Railway config
