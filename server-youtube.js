@@ -275,10 +275,10 @@ app.post('/api/stream/start', async (req, res) => {
       
       // Wait for stream to become active before transitioning
       console.log('[YouTube] Waiting for stream to become active...');
-      console.log('[YouTube] Will check stream status every second for up to 30 seconds');
+      console.log('[YouTube] Will check stream status every second for up to 60 seconds');
       
       let retries = 0;
-      const maxRetries = 30; // 30 seconds total
+      const maxRetries = 60; // 60 seconds total
       let streamActive = false;
       
       while (retries < maxRetries && !streamActive) {
@@ -311,7 +311,7 @@ app.post('/api/stream/start', async (req, res) => {
       if (!streamActive) {
         return res.status(400).json({
           error: 'Stream not active',
-          details: 'The stream did not become active within 30 seconds. Please ensure:\n1. You are streaming to the correct RTMP URL\n2. Your streaming key is correct\n3. Your streaming software is actively sending data',
+          details: 'The stream did not become active within 60 seconds. Please ensure:\n1. You are streaming to the correct RTMP URL\n2. Your streaming key is correct\n3. Your streaming software is actively sending data',
           troubleshooting: {
             rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
             streamKey: 'Check your stream key in YouTube Studio',
