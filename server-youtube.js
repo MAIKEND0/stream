@@ -697,7 +697,7 @@ app.get('/api/streams', (req, res) => {
 
 // Test endpoint for hardcoded stream key
 app.post('/api/stream/test-key', async (req, res) => {
-  const testKey = '3s76-msvs-etfm-5vff-24z1';
+  const testKey = 'c6sq-pzqy-8d5d-d2q2-d0gj';
   
   console.log('[YouTube] Testing hardcoded stream key:', testKey);
   
@@ -771,6 +771,203 @@ app.post('/api/stream/test-key', async (req, res) => {
     res.status(500).json({
       error: error.message || 'Failed to test stream key'
     });
+  }
+});
+
+// Użyj istniejącego stream key (twój hardcoded key)
+app.post('/api/stream/use-existing', async (req, res) => {
+  const existingKey = 'c6sq-pzqy-8d5d-d2q2-d0gj'; // Aktywny klucz z YouTube
+  
+  try {
+    console.log('[YouTube] Using existing stream key:', existingKey);
+    
+    // Znajdź stream z tym kluczem
+    const streamsResponse = await youtube.liveStreams.list({
+      part: ['id', 'status', 'cdn', 'snippet'],
+      mine: true
+    });
+    
+    const existingStream = streamsResponse.data.items?.find(stream => 
+      stream.cdn?.ingestionInfo?.streamName === existingKey
+    );
+    
+    if (!existingStream) {
+      console.log('[YouTube] Stream not found, available streams:', 
+        streamsResponse.data.items?.map(s => s.cdn?.ingestionInfo?.streamName));
+      
+      return res.status(404).json({ 
+        error: 'Stream with this key not found',
+        key: existingKey,
+        hint: 'Create a persistent stream key in YouTube Studio',
+        instruction: 'Go to YouTube Studio → Live Streaming → Stream Key'
+      });
+    }
+    
+    console.log('[YouTube] Found existing stream:', {
+      id: existingStream.id,
+      title: existingStream.snippet?.title,
+      status: existingStream.status?.streamStatus
+    });
+    
+    // Sprawdź czy jest już broadcast powiązany z tym streamem
+    const broadcastsResponse = await youtube.liveBroadcasts.list({
+      part: ['id', 'status', 'contentDetails', 'snippet'],
+      mine: true,
+      broadcastStatus: 'upcoming' // Szukaj tylko nadchodzących
+    });
+    
+    // Znajdź broadcast który używa tego streamu
+    let existingBroadcast = broadcastsResponse.data.items?.find(broadcast =>
+      broadcast.contentDetails?.boundStreamId === existingStream.id &&
+      (broadcast.status?.lifeCycleStatus === 'ready' || 
+       broadcast.status?.lifeCycleStatus === 'testing')
+    );
+    
+    if (existingBroadcast) {
+      console.log('[YouTube] Found existing broadcast:', existingBroadcast.id);
+      
+      // Użyj istniejącego broadcast
+      res.json({
+        success: true,
+        broadcastId: existingBroadcast.id,
+        streamKey: existingKey,
+        streamId: existingStream.id,
+        rtmpUrl: `rtmp://a.rtmp.youtube.com/live2`,
+        watchUrl: `https://youtube.com/watch?v=${existingBroadcast.id}`,
+        status: existingBroadcast.status?.lifeCycleStatus,
+        message: 'Using existing broadcast and stream!',
+        canStartNow: existingBroadcast.status?.lifeCycleStatus === 'ready'
+      });
+      
+    } else {
+      // Utwórz nowy broadcast i powiąż z istniejącym streamem
+      console.log('[YouTube] Creating new broadcast for existing stream...');
+      
+      const broadcast = await youtube.liveBroadcasts.insert({
+        part: ['snippet', 'status', 'contentDetails'],
+        requestBody: {
+          snippet: {
+            title: req.body.title || `eFootball Mobile - ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL')}`,
+            description: req.body.description || 'Transmisja na żywo z gry eFootball Mobile',
+            scheduledStartTime: new Date().toISOString()
+          },
+          status: {
+            privacyStatus: req.body.privacy || 'public',
+            selfDeclaredMadeForKids: false
+          },
+          contentDetails: {
+            enableAutoStart: false,
+            enableAutoStop: true,
+            recordFromStart: true,
+            monitorStream: {
+              enableMonitorStream: true,
+              broadcastStreamDelayMs: 0
+            }
+          }
+        }
+      });
+      
+      console.log('[YouTube] New broadcast created:', broadcast.data.id);
+      
+      // Powiąż istniejący stream z nowym broadcast
+      await youtube.liveBroadcasts.bind({
+        part: ['id'],
+        id: broadcast.data.id,
+        streamId: existingStream.id
+      });
+      
+      console.log('[YouTube] Stream bound to broadcast successfully');
+      
+      res.json({
+        success: true,
+        broadcastId: broadcast.data.id,
+        streamKey: existingKey,
+        streamId: existingStream.id,
+        rtmpUrl: `rtmp://a.rtmp.youtube.com/live2`,
+        watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
+        status: broadcast.data.status?.lifeCycleStatus,
+        message: 'New broadcast created with existing stream key!',
+        instructions: {
+          step1: 'Stream is ready to receive data',
+          step2: 'Start broadcasting from iOS app',
+          step3: 'Wait 5-10 seconds for data to arrive',
+          step4: 'Call /api/stream/start to go live'
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('[YouTube] Error in use-existing:', error);
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data?.error
+    });
+  }
+});
+
+// Dodaj też endpoint do sprawdzenia czy stream odbiera dane
+app.get('/api/stream/check-data/:broadcastId', async (req, res) => {
+  try {
+    const { broadcastId } = req.params;
+    
+    // Pobierz broadcast
+    const broadcastCheck = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'contentDetails']
+    });
+    
+    if (!broadcastCheck.data.items?.length) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = broadcastCheck.data.items[0];
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    
+    if (!streamId) {
+      return res.json({
+        success: false,
+        receivingData: false,
+        message: 'No stream bound to broadcast'
+      });
+    }
+    
+    // Sprawdź status streamu
+    const streamCheck = await youtube.liveStreams.list({
+      id: [streamId],
+      part: ['id', 'status']
+    });
+    
+    if (!streamCheck.data.items?.length) {
+      return res.json({
+        success: false,
+        receivingData: false,
+        message: 'Stream not found'
+      });
+    }
+    
+    const stream = streamCheck.data.items[0];
+    const isActive = stream.status?.streamStatus === 'active';
+    const healthStatus = stream.status?.healthStatus?.status;
+    
+    res.json({
+      success: true,
+      receivingData: isActive,
+      streamStatus: stream.status?.streamStatus,
+      healthStatus: healthStatus,
+      canGoLive: isActive && broadcast.status?.lifeCycleStatus === 'ready',
+      message: isActive 
+        ? '✅ Stream is receiving data! Ready to go live.'
+        : '⏳ Waiting for stream data... Make sure iOS app is broadcasting.',
+      debug: {
+        broadcastStatus: broadcast.status?.lifeCycleStatus,
+        streamId: streamId,
+        lastUpdate: stream.status?.healthStatus?.lastUpdateTimeSeconds
+      }
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Error checking data:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
