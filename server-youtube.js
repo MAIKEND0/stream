@@ -141,14 +141,14 @@ app.post('/api/stream/create', async (req, res) => {
         snippet: {
           title: title || '🔴 LIVE - eFootball Mobile Polska',
           description: description || 'Transmisja na żywo z gry eFootball Mobile',
-          scheduledStartTime: new Date().toISOString(),
+          scheduledStartTime: new Date(Date.now() + 2 * 60 * 1000).toISOString(), // 2 minutes from now
         },
         status: {
           privacyStatus: privacy || 'public',
           selfDeclaredMadeForKids: false,
         },
         contentDetails: {
-          enableAutoStart: true,
+          enableAutoStart: false, // IMPORTANT: Don't auto-start, we control transitions manually
           enableAutoStop: true,
           recordFromStart: true,
           monitorStream: {
@@ -399,8 +399,21 @@ app.post('/api/stream/start', async (req, res) => {
       status: error.response?.status,
       broadcastId
     });
+    
+    // Don't convert YouTube 4xx errors to 500
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error?.message || error.message || 'Failed to start stream';
+    
+    if (status === 403 || status === 400 || status === 404) {
+      return res.status(status).json({
+        error: message,
+        details: error.response?.data?.error,
+        broadcastId
+      });
+    }
+    
     res.status(500).json({
-      error: error.message || 'Failed to start stream',
+      error: message,
       details: error.response?.data?.error
     });
   }
