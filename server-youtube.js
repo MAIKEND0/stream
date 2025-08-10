@@ -1248,6 +1248,211 @@ app.get('/api/stream/diagnose', async (req, res) => {
   }
 });
 
+// NOWY ENDPOINT - użyj persistent stream key
+app.post('/api/stream/use-persistent-key', async (req, res) => {
+  const PERSISTENT_KEY = 'q0e0-ruge-wse6-y53r-2vt1'; // Nowy klucz!
+  
+  try {
+    console.log('[YouTube] Using persistent stream key');
+    
+    // Znajdź stream z tym kluczem
+    const streamsResponse = await youtube.liveStreams.list({
+      part: ['id', 'status', 'cdn', 'snippet'],
+      mine: true
+    });
+    
+    const persistentStream = streamsResponse.data.items?.find(stream => 
+      stream.cdn?.ingestionInfo?.streamName === PERSISTENT_KEY
+    );
+    
+    if (!persistentStream) {
+      return res.status(404).json({
+        error: 'Stream with this key not found',
+        providedKey: PERSISTENT_KEY,
+        hint: 'Check if the stream key is correct in YouTube Studio'
+      });
+    }
+    
+    console.log('[YouTube] Found persistent stream:', persistentStream.id);
+    
+    // Sprawdź istniejące broadcasty
+    const broadcastsResponse = await youtube.liveBroadcasts.list({
+      part: ['id', 'status', 'contentDetails', 'snippet'],
+      mine: true,
+      maxResults: 10
+    });
+    
+    // Znajdź broadcast powiązany z tym streamem
+    let activeBroadcast = broadcastsResponse.data.items?.find(broadcast =>
+      broadcast.contentDetails?.boundStreamId === persistentStream.id &&
+      (broadcast.status?.lifeCycleStatus === 'ready' || 
+       broadcast.status?.lifeCycleStatus === 'testing' ||
+       broadcast.status?.lifeCycleStatus === 'live')
+    );
+    
+    if (activeBroadcast && activeBroadcast.status?.lifeCycleStatus === 'live') {
+      return res.json({
+        success: true,
+        broadcastId: activeBroadcast.id,
+        streamKey: PERSISTENT_KEY,
+        status: 'live',
+        message: 'Stream is already LIVE!',
+        watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`
+      });
+    }
+    
+    // Utwórz nowy broadcast jeśli potrzebny
+    if (!activeBroadcast || activeBroadcast.status?.lifeCycleStatus === 'complete') {
+      console.log('[YouTube] Creating new broadcast...');
+      
+      const broadcast = await youtube.liveBroadcasts.insert({
+        part: ['snippet', 'status', 'contentDetails'],
+        requestBody: {
+          snippet: {
+            title: `eFootball Mobile - ${new Date().toLocaleString('pl-PL')}`,
+            description: req.body.description || 'Transmisja na żywo z gry eFootball Mobile',
+            scheduledStartTime: new Date().toISOString()
+          },
+          status: {
+            privacyStatus: 'public',
+            selfDeclaredMadeForKids: false
+          },
+          contentDetails: {
+            enableAutoStart: true,
+            enableAutoStop: false,
+            recordFromStart: true,
+            monitorStream: {
+              enableMonitorStream: true,
+              broadcastStreamDelayMs: 0
+            },
+            latencyPreference: 'low'
+          }
+        }
+      });
+      
+      console.log('[YouTube] New broadcast created:', broadcast.data.id);
+      
+      // Powiąż stream
+      await youtube.liveBroadcasts.bind({
+        part: ['id'],
+        id: broadcast.data.id,
+        streamId: persistentStream.id
+      });
+      
+      activeBroadcast = broadcast.data;
+    }
+    
+    res.json({
+      success: true,
+      broadcastId: activeBroadcast.id,
+      streamKey: PERSISTENT_KEY,
+      streamId: persistentStream.id,
+      rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+      watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`,
+      status: activeBroadcast.status?.lifeCycleStatus,
+      message: 'Broadcast ready! Stream will auto-start when data is detected.'
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data?.error
+    });
+  }
+});
+
+// NOWY ENDPOINT - Wymuś przejście do live
+app.post('/api/stream/force-live', async (req, res) => {
+  const { broadcastId } = req.body;
+  
+  if (!broadcastId) {
+    return res.status(400).json({ error: 'broadcastId required' });
+  }
+  
+  try {
+    console.log('[YouTube] FORCING transition to live for:', broadcastId);
+    
+    // Sprawdź status
+    const check = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id', 'status', 'contentDetails']
+    });
+    
+    if (!check.data.items?.length) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+    
+    const broadcast = check.data.items[0];
+    const currentStatus = broadcast.status?.lifeCycleStatus;
+    
+    console.log('[YouTube] Current status:', currentStatus);
+    
+    if (currentStatus === 'live') {
+      return res.json({
+        success: true,
+        message: 'Already LIVE!',
+        status: 'live'
+      });
+    }
+    
+    // Spróbuj przejść do live
+    try {
+      // Najpierw do testing jeśli w ready
+      if (currentStatus === 'ready') {
+        await youtube.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: 'testing',
+          part: ['id', 'status']
+        });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Teraz do live
+      await youtube.liveBroadcasts.transition({
+        id: broadcastId,
+        broadcastStatus: 'live',
+        part: ['id', 'status']
+      });
+      
+      return res.json({
+        success: true,
+        message: '🎉 Stream is now LIVE!',
+        status: 'live'
+      });
+      
+    } catch (transitionError) {
+      // Sprawdź dlaczego nie działa
+      const streamId = broadcast.contentDetails?.boundStreamId;
+      let streamInfo = null;
+      
+      if (streamId) {
+        const streamCheck = await youtube.liveStreams.list({
+          id: [streamId],
+          part: ['id', 'status']
+        });
+        streamInfo = streamCheck.data.items?.[0]?.status;
+      }
+      
+      return res.status(400).json({
+        error: 'Cannot transition to live',
+        currentStatus: currentStatus,
+        streamHealth: streamInfo?.healthStatus,
+        hint: streamInfo?.healthStatus?.status === 'noData' 
+          ? 'Stream is not receiving data. Check iOS app.'
+          : 'Wait for stream to stabilize'
+      });
+    }
+    
+  } catch (error) {
+    console.error('[YouTube] Force live error:', error);
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data?.error
+    });
+  }
+});
+
 // Start server - Railway config
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
