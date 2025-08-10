@@ -255,33 +255,20 @@ app.post('/api/stream/start', async (req, res) => {
     console.log('[YouTube] Current broadcast status:', currentStatus);
     console.log('[YouTube] Bound stream ID:', streamId);
     
-    // Check stream health if we have a stream ID
-    if (streamId) {
-      const streamCheck = await youtube.liveStreams.list({
-        id: [streamId],
-        part: ['id', 'status']
-      });
-      
-      if (streamCheck.data.items && streamCheck.data.items.length > 0) {
-        const streamStatus = streamCheck.data.items[0].status;
-        console.log('[YouTube] Stream health:', streamStatus);
-        
-        // Check if stream is active (receiving data)
-        if (streamStatus?.streamStatus !== 'active') {
-          return res.status(400).json({
-            error: 'Stream not active',
-            details: 'The stream is not receiving data. Please ensure your streaming software is connected and sending data to the RTMP URL.',
-            streamStatus: streamStatus?.streamStatus,
-            healthStatus: streamStatus?.healthStatus
-          });
-        }
-      }
-    }
+    // Don't check stream status here - we'll do it in the retry loop below
     
     // Handle different states
     if (currentStatus === 'ready') {
+      if (!streamId) {
+        return res.status(400).json({
+          error: 'No stream bound',
+          details: 'No stream is bound to this broadcast. Please create a new broadcast.'
+        });
+      }
+      
       // Wait for stream to become active before transitioning
       console.log('[YouTube] Waiting for stream to become active...');
+      console.log('[YouTube] Will check stream status every second for up to 30 seconds');
       
       let retries = 0;
       const maxRetries = 30; // 30 seconds total
@@ -297,11 +284,14 @@ app.post('/api/stream/start', async (req, res) => {
           
           if (streamCheck.data.items && streamCheck.data.items.length > 0) {
             const streamStatus = streamCheck.data.items[0].status;
-            console.log(`[YouTube] Retry ${retries + 1}/${maxRetries} - Stream status:`, streamStatus?.streamStatus);
+            console.log(`[YouTube] Retry ${retries + 1}/${maxRetries} - Stream status:`, {
+              streamStatus: streamStatus?.streamStatus,
+              healthStatus: streamStatus?.healthStatus?.status
+            });
             
             if (streamStatus?.streamStatus === 'active') {
               streamActive = true;
-              console.log('[YouTube] Stream is now active!');
+              console.log('[YouTube] ✅ Stream is now active and receiving data!');
               break;
             }
           }
