@@ -447,78 +447,7 @@ app.post('/api/stream/start', async (req, res) => {
   }
 });
 
-// Get stream status
-app.get('/api/stream/status/:broadcastId', async (req, res) => {
-  try {
-    const { broadcastId } = req.params;
-    
-    console.log('[YouTube] Get stream status:', { broadcastId });
-    
-    if (!broadcastId) {
-      return res.status(400).json({ error: 'broadcastId is required' });
-    }
-    
-    // Get broadcast details
-    const broadcastCheck = await youtube.liveBroadcasts.list({
-      id: [broadcastId],
-      part: ['id', 'status', 'contentDetails', 'snippet']
-    });
-    
-    if (!broadcastCheck.data.items || broadcastCheck.data.items.length === 0) {
-      return res.status(404).json({ error: 'Broadcast not found' });
-    }
-    
-    const broadcast = broadcastCheck.data.items[0];
-    const streamId = broadcast.contentDetails?.boundStreamId;
-    
-    let streamHealth = null;
-    
-    // Get stream health if available
-    if (streamId) {
-      const streamCheck = await youtube.liveStreams.list({
-        id: [streamId],
-        part: ['id', 'status', 'cdn']
-      });
-      
-      if (streamCheck.data.items && streamCheck.data.items.length > 0) {
-        const stream = streamCheck.data.items[0];
-        streamHealth = {
-          streamStatus: stream.status?.streamStatus,
-          healthStatus: stream.status?.healthStatus,
-          ingestionInfo: {
-            streamName: stream.cdn?.ingestionInfo?.streamName,
-            ingestionAddress: stream.cdn?.ingestionInfo?.ingestionAddress
-          }
-        };
-      }
-    }
-    
-    res.json({
-      broadcastId: broadcast.id,
-      status: broadcast.status?.lifeCycleStatus,
-      title: broadcast.snippet?.title,
-      description: broadcast.snippet?.description,
-      scheduledStartTime: broadcast.snippet?.scheduledStartTime,
-      actualStartTime: broadcast.snippet?.actualStartTime,
-      streamId: streamId,
-      streamHealth: streamHealth,
-      watchUrl: `https://youtube.com/watch?v=${broadcastId}`,
-      canGoLive: streamHealth?.streamStatus === 'active' && 
-                 (broadcast.status?.lifeCycleStatus === 'ready' || 
-                  broadcast.status?.lifeCycleStatus === 'testing')
-    });
-    
-  } catch (error) {
-    console.error('[YouTube] Error getting stream status:', {
-      message: error.message,
-      response: error.response?.data
-    });
-    res.status(500).json({
-      error: error.message || 'Failed to get stream status',
-      details: error.response?.data?.error
-    });
-  }
-});
+// Removed duplicate GET /api/stream/status/:broadcastId - using the one at line ~1570 instead
 
 // Stop stream
 app.post('/api/stream/stop', async (req, res) => {
@@ -1039,7 +968,7 @@ app.post('/api/stream/force-recreate', async (req, res) => {
     
     if (!existingStream) {
       // If no stream exists with this key, create one
-      console.log('[YouTube] Creating new stream with key...');
+      console.log('[YouTube] Creating new stream (YouTube will assign key)...');
       const newStream = await youtube.liveStreams.insert({
         part: ['snippet', 'cdn', 'status'],
         requestBody: {
@@ -1050,13 +979,15 @@ app.post('/api/stream/force-recreate', async (req, res) => {
           cdn: {
             frameRate: '30fps',
             ingestionType: 'rtmp',
-            resolution: '720p',
-            ingestionInfo: {
-              streamName: existingKey  // Use the hardcoded key
-            }
+            resolution: '720p'
+            // YouTube will generate streamName automatically
           }
         }
       });
+      
+      // Get the actual generated stream key
+      const generatedKey = newStream.data.cdn?.ingestionInfo?.streamName;
+      console.log('[YouTube] New stream created with key:', generatedKey);
       
       // Bind new stream to broadcast
       await youtube.liveBroadcasts.bind({
@@ -1077,16 +1008,28 @@ app.post('/api/stream/force-recreate', async (req, res) => {
       console.log('[YouTube] Bound existing stream to new broadcast');
     }
     
+    // Get the final stream key (either existing or newly generated)
+    let finalStreamKey = existingKey;
+    if (!existingStream) {
+      // If we created a new stream, get its generated key
+      const boundStreamId = broadcast.data.contentDetails?.boundStreamId;
+      const streamCheck = await youtube.liveStreams.list({
+        id: [boundStreamId],
+        part: ['cdn']
+      });
+      finalStreamKey = streamCheck.data.items?.[0]?.cdn?.ingestionInfo?.streamName || existingKey;
+    }
+    
     res.json({
       success: true,
       broadcastId: broadcast.data.id,
-      streamKey: existingKey,
+      streamKey: finalStreamKey,
       rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
       watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
       message: 'Fresh broadcast created! Stream will auto-start when data is received.',
       instructions: {
         step1: '✅ Broadcast is ready with auto-start enabled',
-        step2: '✅ Your iOS app should already be streaming',
+        step2: '⚠️ Update iOS to use this stream key',
         step3: '✅ YouTube will automatically go live when stream is detected',
         step4: 'If not live in 10 seconds, restart the iOS broadcast'
       }
