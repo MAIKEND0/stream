@@ -196,7 +196,7 @@ app.post('/api/stream/create', async (req, res) => {
     
     // Get stream details
     const streamKey = stream.data.cdn?.ingestionInfo?.streamName || '';
-    const rtmpUrl = stream.data.cdn?.ingestionInfo?.ingestionAddress || 'rtmp://a.rtmp.youtube.com/live2';
+    const rtmpUrl = stream.data.cdn?.ingestionInfo?.ingestionAddress || 'rtmps://a.rtmps.youtube.com/live2';
     const watchUrl = `https://www.youtube.com/watch?v=${broadcast.data.id}`;
     
     // Store stream info
@@ -322,7 +322,7 @@ app.post('/api/stream/start', async (req, res) => {
             // If we have 'noData' for too long, provide helpful error
             if (retries > 10 && healthStatus?.status === 'noData') {
               console.log('[YouTube] ⚠️ Stream created but no data received. Check:');
-              console.log('  1. RTMP URL: rtmp://a.rtmp.youtube.com/live2/' + (stream.cdn?.ingestionInfo?.streamName || 'STREAM_KEY'));
+              console.log('  1. RTMP URL: rtmps://a.rtmps.youtube.com/live2/' + (stream.cdn?.ingestionInfo?.streamName || 'STREAM_KEY'));
               console.log('  2. Stream key is correct');
               console.log('  3. iOS app is actually sending video data');
             }
@@ -338,7 +338,7 @@ app.post('/api/stream/start', async (req, res) => {
           error: 'Stream not active',
           details: 'The stream did not become active within 60 seconds. Please ensure:\n1. You are streaming to the correct RTMP URL\n2. Your streaming key is correct\n3. Your streaming software is actively sending data',
           troubleshooting: {
-            rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+            rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2',
             streamKey: 'Check your stream key in YouTube Studio',
             obs: 'In OBS, click "Start Streaming" and wait a few seconds'
           }
@@ -674,7 +674,7 @@ app.post('/api/stream/test-key', async (req, res) => {
           streamKey: testKey,
           status: matchingStream.status?.streamStatus,
           health: matchingStream.status?.healthStatus,
-          rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2/' + testKey
+          rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2/' + testKey
         },
         broadcast: associatedBroadcast ? {
           id: associatedBroadcast.id,
@@ -761,7 +761,7 @@ app.post('/api/stream/use-existing', async (req, res) => {
         broadcastId: existingBroadcast.id,
         streamKey: existingKey,
         streamId: existingStream.id,
-        rtmpUrl: `rtmp://a.rtmp.youtube.com/live2`,
+        rtmpUrl: `rtmps://a.rtmps.youtube.com/live2`,
         watchUrl: `https://youtube.com/watch?v=${existingBroadcast.id}`,
         status: existingBroadcast.status?.lifeCycleStatus,
         message: 'Using existing broadcast and stream!',
@@ -812,7 +812,7 @@ app.post('/api/stream/use-existing', async (req, res) => {
         broadcastId: broadcast.data.id,
         streamKey: existingKey,
         streamId: existingStream.id,
-        rtmpUrl: `rtmp://a.rtmp.youtube.com/live2`,
+        rtmpUrl: `rtmps://a.rtmps.youtube.com/live2`,
         watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
         status: broadcast.data.status?.lifeCycleStatus,
         message: 'New broadcast created with existing stream key!',
@@ -1024,7 +1024,7 @@ app.post('/api/stream/force-recreate', async (req, res) => {
       success: true,
       broadcastId: broadcast.data.id,
       streamKey: finalStreamKey,
-      rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+      rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2',
       watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
       message: 'Fresh broadcast created! Stream will auto-start when data is received.',
       instructions: {
@@ -1379,7 +1379,7 @@ app.post('/api/stream/use-persistent-key', async (req, res) => {
       broadcastId: activeBroadcast.id,
       streamKey: PERSISTENT_KEY,
       streamId: persistentStream.id,
-      rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
+      rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2',
       watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`,
       status: activeBroadcast.status?.lifeCycleStatus,
       message: 'Broadcast ready! Stream will auto-start when data is detected.'
