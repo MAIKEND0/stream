@@ -1424,12 +1424,17 @@ app.post('/api/stream/use-persistent-key', async (req, res) => {
       activeBroadcast = broadcast.data;
     }
     
+    // Get ingest addresses from the stream
+    const ingest = persistentStream.cdn?.ingestionInfo;
+    
     res.json({
       success: true,
       broadcastId: activeBroadcast.id,
       streamKey: PERSISTENT_KEY,
       streamId: persistentStream.id,
       rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2',
+      rtmpIngestAddress: ingest?.ingestionAddress,          // NEW: Dynamic ingest from YouTube
+      backupIngestAddress: ingest?.backupIngestionAddress,  // NEW: Backup ingest for failover
       watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`,
       status: activeBroadcast.status?.lifeCycleStatus,
       message: 'Broadcast ready! Stream will auto-start when data is detected.'
