@@ -39,6 +39,53 @@ if (process.env.YOUTUBE_ACCESS_TOKEN && process.env.YOUTUBE_REFRESH_TOKEN) {
 // Store active streams
 const activeStreams = new Map();
 
+// Helper function to wait for stream to become active
+async function waitForActiveStream(streamId, options = {}) {
+  const { timeoutMs = 90000, intervalMs = 1500 } = options;
+  const startTime = Date.now();
+  
+  console.log(`[YouTube] Waiting for stream ${streamId} to become active...`);
+  
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const streamCheck = await youtube.liveStreams.list({
+        id: [streamId],
+        part: ['status', 'cdn']
+      });
+      
+      if (streamCheck.data.items && streamCheck.data.items.length > 0) {
+        const stream = streamCheck.data.items[0];
+        const streamStatus = stream.status?.streamStatus;
+        const healthStatus = stream.status?.healthStatus?.status;
+        
+        console.log(`[YouTube] Stream check - Status: ${streamStatus}, Health: ${healthStatus}`);
+        
+        // Stream is active and receiving data - only accept 'good' or 'ok' health status
+        if (
+          streamStatus === 'active' ||
+          (healthStatus && ['good', 'ok'].includes(healthStatus))
+        ) {
+          console.log(`[YouTube] ✅ Stream is active and healthy!`);
+          return {
+            success: true,
+            streamStatus,
+            healthStatus,
+            streamKey: stream.cdn?.ingestionInfo?.streamName
+          };
+        }
+      }
+      
+      // Wait before next check
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    } catch (error) {
+      console.error(`[YouTube] Error checking stream status:`, error.message);
+    }
+  }
+  
+  // Timeout reached
+  throw new Error(`Stream did not become active within ${timeoutMs}ms`);
+}
+
 // Health check
 app.get('/', (req, res) => {
   res.json({
@@ -106,8 +153,9 @@ app.get('/auth/youtube/callback', async (req, res) => {
     
     // Store tokens (in production, save to database)
     console.log('YouTube tokens received:');
-    console.log('ACCESS_TOKEN:', tokens.access_token);
-    console.log('REFRESH_TOKEN:', tokens.refresh_token);
+    const mask = v => v ? v.slice(0,5) + '…' + v.slice(-5) : 'null';
+    console.log('ACCESS_TOKEN:', mask(tokens.access_token));
+    console.log('REFRESH_TOKEN:', mask(tokens.refresh_token));
     
     res.send(`
       <html>
@@ -1044,79 +1092,81 @@ app.post('/api/stream/force-recreate', async (req, res) => {
   }
 });
 
-// Improved start stream endpoint with better error handling
+// Improved start stream endpoint with better error handling and preflight checks
 app.post('/api/stream/start-simplified', async (req, res) => {
   const { broadcastId } = req.body;
-  
   try {
     console.log('[YouTube] Simplified start for broadcast:', broadcastId);
-    
-    // Skip all the checking and just try to transition
-    // YouTube will handle the validation
-    
-    // Try to go directly to live
-    try {
-      const response = await youtube.liveBroadcasts.transition({
-        id: broadcastId,
-        broadcastStatus: 'live',
-        part: ['id', 'status']
+    if (!broadcastId) return res.status(400).json({ error: 'broadcastId required' });
+
+    // Preflight: fetch broadcast + associated stream
+    const bcResp = await youtube.liveBroadcasts.list({
+      id: [broadcastId],
+      part: ['id','status','contentDetails']
+    });
+    const bc = bcResp.data.items?.[0];
+    if (!bc) return res.status(404).json({ error: 'Broadcast not found' });
+
+    if (bc.status?.lifeCycleStatus === 'live') {
+      return res.json({ success: true, status: 'live', message: 'Stream is already live!' });
+    }
+
+    if (!['ready','testing'].includes(bc.status?.lifeCycleStatus)) {
+      return res.status(409).json({
+        code: 'BROADCAST_BAD_STATE',
+        error: `Broadcast is ${bc.status?.lifeCycleStatus}, expected ready/testing`
       });
-      
-      console.log('[YouTube] Successfully transitioned to live!');
-      
+    }
+
+    const streamId = bc.contentDetails?.boundStreamId;
+    if (!streamId) {
+      return res.status(409).json({
+        code: 'NO_STREAM_BOUND',
+        error: 'No stream bound to broadcast'
+      });
+    }
+
+    // Wait for stream to be active (shorter than force-live)
+    try {
+      const diag = await waitForActiveStream(streamId, { timeoutMs: 60000, intervalMs: 1500 });
+      // Transition: if ready → testing → live, if testing → live
+      if (bc.status?.lifeCycleStatus === 'ready') {
+        await youtube.liveBroadcasts.transition({ id: broadcastId, broadcastStatus: 'testing', part: ['id','status'] });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      const liveResp = await youtube.liveBroadcasts.transition({
+        id: broadcastId, broadcastStatus: 'live', part: ['id','status']
+      });
+
       return res.json({
         success: true,
-        status: response.data.status?.lifeCycleStatus,
-        message: '🎉 Stream is now LIVE on YouTube!'
+        status: liveResp.data.status?.lifeCycleStatus,
+        message: '🎉 Stream is now LIVE on YouTube!',
+        streamDiagnostics: diag
       });
-      
-    } catch (directError) {
-      // If direct transition fails, try testing first
-      console.log('[YouTube] Direct to live failed, trying testing first...');
-      
-      try {
-        await youtube.liveBroadcasts.transition({
-          id: broadcastId,
-          broadcastStatus: 'testing',
-          part: ['id', 'status']
-        });
-        
-        console.log('[YouTube] Transitioned to testing, waiting 2 seconds...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Now try live
-        const liveResponse = await youtube.liveBroadcasts.transition({
-          id: broadcastId,
-          broadcastStatus: 'live',
-          part: ['id', 'status']
-        });
-        
-        return res.json({
-          success: true,
-          status: liveResponse.data.status?.lifeCycleStatus,
-          message: '🎉 Stream is now LIVE on YouTube!'
-        });
-        
-      } catch (testingError) {
-        throw testingError;
-      }
+    } catch (e) {
+      // Precondition not met in time
+      // Return 409 + diagnostics
+      const s = await youtube.liveStreams.list({ id: [streamId], part: ['id','status','cdn'] });
+      const sd = s.data.items?.[0];
+      return res.status(409).json({
+        code: 'STREAM_NOT_ACTIVE_YET',
+        error: 'Stream did not become active in time',
+        streamDiagnostics: {
+          streamId,
+          streamStatus: sd?.status?.streamStatus,
+          healthStatus: sd?.status?.healthStatus?.status,
+          expectedRtmpUrl: sd ? `${sd.cdn?.ingestionInfo?.ingestionAddress}/${sd.cdn?.ingestionInfo?.streamName}` : null,
+          lastHealthUpdate: sd?.status?.healthStatus?.lastUpdateTimeSeconds
+        },
+        hint: 'Start the iOS broadcast and wait ~10–20s before calling this endpoint.'
+      });
     }
-    
   } catch (error) {
     console.error('[YouTube] Start simplified error:', error);
-    
-    // Check if it's already live
-    if (error.message?.includes('redundantTransition')) {
-      return res.json({
-        success: true,
-        message: 'Stream is already live!'
-      });
-    }
-    
-    res.status(400).json({
-      error: error.message || 'Failed to start stream',
-      details: error.response?.data?.error,
-      hint: 'Try using /api/stream/force-recreate to create a fresh broadcast'
+    const http = error.response?.status || 500;
+    return res.status(http).json({
+      error: error.response?.data?.error?.message || error.message || 'Failed to start stream'
     });
   }
 });
@@ -1428,9 +1478,27 @@ app.post('/api/stream/force-live', async (req, res) => {
       });
     }
     
-    // Spróbuj przejść do live
+    // Wait for stream to become active first
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    if (!streamId) {
+      return res.status(409).json({
+        error: 'No stream bound to broadcast',
+        hint: 'Create a stream first using /api/stream/use-persistent-key'
+      });
+    }
+    
+    // Wait for stream to be active and healthy
     try {
-      // Najpierw do testing jeśli w ready
+      console.log('[YouTube] Waiting for stream to become active...');
+      const streamResult = await waitForActiveStream(streamId, {
+        timeoutMs: 90000,  // 90 seconds timeout
+        intervalMs: 1500    // Check every 1.5 seconds
+      });
+      
+      console.log('[YouTube] Stream is active! Proceeding with transition...');
+      
+      // Now try to transition
+      // First to testing if in ready
       if (currentStatus === 'ready') {
         await youtube.liveBroadcasts.transition({
           id: broadcastId,
@@ -1440,7 +1508,7 @@ app.post('/api/stream/force-live', async (req, res) => {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
-      // Teraz do live
+      // Then to live
       await youtube.liveBroadcasts.transition({
         id: broadcastId,
         broadcastStatus: 'live',
@@ -1450,7 +1518,8 @@ app.post('/api/stream/force-live', async (req, res) => {
       return res.json({
         success: true,
         message: '🎉 Stream is now LIVE!',
-        status: 'live'
+        status: 'live',
+        streamDiagnostics: streamResult
       });
       
     } catch (transitionError) {
@@ -1476,7 +1545,8 @@ app.post('/api/stream/force-live', async (req, res) => {
         rtmpUrl: streamDetails?.cdn?.ingestionInfo?.ingestionAddress
       });
       
-      return res.status(400).json({
+      return res.status(409).json({
+        code: 'PRECONDITION_NOT_MET',
         error: 'Cannot transition to live',
         currentStatus: currentStatus,
         streamDiagnostics: {
