@@ -1178,6 +1178,38 @@ app.post('/api/stream/start-simplified', async (req, res) => {
   }
 });
 
+// Endpoint do sprawdzenia wszystkich stream keys
+app.get('/api/stream/list-keys', async (req, res) => {
+  try {
+    const streams = await youtube.liveStreams.list({
+      part: ['id', 'cdn', 'status', 'snippet'],
+      mine: true,
+      maxResults: 10
+    });
+    
+    const streamKeys = streams.data.items?.map(stream => ({
+      streamId: stream.id,
+      title: stream.snippet?.title,
+      streamKey: stream.cdn?.ingestionInfo?.streamName,
+      streamStatus: stream.status?.streamStatus,
+      healthStatus: stream.status?.healthStatus?.status,
+      isActive: stream.status?.streamStatus === 'active',
+      rtmpUrl: `${stream.cdn?.ingestionInfo?.ingestionAddress}/${stream.cdn?.ingestionInfo?.streamName}`
+    })) || [];
+    
+    res.json({
+      totalStreams: streamKeys.length,
+      streams: streamKeys,
+      activeKeys: streamKeys.filter(s => s.isActive).map(s => s.streamKey),
+      expectedKey: 'q0e0-ruge-wse6-y53r-2vt1',
+      keyExists: streamKeys.some(s => s.streamKey === 'q0e0-ruge-wse6-y53r-2vt1')
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Quick diagnostic endpoint
 app.get('/api/stream/diagnose', async (req, res) => {
   try {
@@ -1244,6 +1276,63 @@ app.get('/api/stream/diagnose', async (req, res) => {
     });
     
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint do utworzenia nowego persistent stream jeśli nie istnieje
+app.post('/api/stream/create-persistent', async (req, res) => {
+  const PERSISTENT_KEY = 'q0e0-ruge-wse6-y53r-2vt1';
+  
+  try {
+    console.log('[YouTube] Creating new persistent stream with key:', PERSISTENT_KEY);
+    
+    // Sprawdź czy stream już istnieje
+    const existingStreams = await youtube.liveStreams.list({
+      part: ['id', 'cdn', 'status'],
+      mine: true
+    });
+    
+    const exists = existingStreams.data.items?.find(s => 
+      s.cdn?.ingestionInfo?.streamName === PERSISTENT_KEY
+    );
+    
+    if (exists) {
+      return res.json({
+        success: true,
+        message: 'Stream already exists',
+        streamId: exists.id,
+        streamKey: PERSISTENT_KEY
+      });
+    }
+    
+    // Utwórz nowy stream z określonym kluczem
+    // UWAGA: YouTube może nie pozwolić na własny klucz
+    const newStream = await youtube.liveStreams.insert({
+      part: ['snippet', 'cdn', 'status'],
+      requestBody: {
+        snippet: {
+          title: 'eFootball Persistent Stream',
+          description: 'Persistent stream for eFootball Mobile'
+        },
+        cdn: {
+          frameRate: '30fps',
+          ingestionType: 'rtmp',
+          resolution: '720p'
+        }
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'New stream created',
+      streamId: newStream.data.id,
+      streamKey: newStream.data.cdn?.ingestionInfo?.streamName,
+      note: 'YouTube generates its own stream key, cannot set custom key'
+    });
+    
+  } catch (error) {
+    console.error('[YouTube] Create persistent error:', error);
     res.status(500).json({ error: error.message });
   }
 });
