@@ -697,7 +697,7 @@ app.get('/api/streams', (req, res) => {
 
 // Test endpoint for hardcoded stream key
 app.post('/api/stream/test-key', async (req, res) => {
-  const testKey = '3s76-msvs-etfm-5vff-24z1';
+  const testKey = 'q0e0-ruge-wse6-y53r-2vt1';
   
   console.log('[YouTube] Testing hardcoded stream key:', testKey);
   
@@ -776,7 +776,7 @@ app.post('/api/stream/test-key', async (req, res) => {
 
 // Użyj istniejącego stream key (twój hardcoded key)
 app.post('/api/stream/use-existing', async (req, res) => {
-  const existingKey = '3s76-msvs-etfm-5vff-24z1'; // Aktywny klucz z YouTube
+  const existingKey = 'q0e0-ruge-wse6-y53r-2vt1'; // Aktywny klucz z YouTube
   
   try {
     console.log('[YouTube] Using existing stream key:', existingKey);
@@ -973,7 +973,7 @@ app.get('/api/stream/check-data/:broadcastId', async (req, res) => {
 
 // Force recreate stream with the same key
 app.post('/api/stream/force-recreate', async (req, res) => {
-  const existingKey = '3s76-msvs-etfm-5vff-24z1';
+  const existingKey = 'q0e0-ruge-wse6-y53r-2vt1';
   
   try {
     console.log('[YouTube] Force recreating stream and broadcast...');
@@ -1225,7 +1225,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
       mine: true
     });
     
-    const streamKey = '3s76-msvs-etfm-5vff-24z1';
+    const streamKey = 'q0e0-ruge-wse6-y53r-2vt1';
     const activeStream = streams.data.items?.find(s => 
       s.cdn?.ingestionInfo?.streamName === streamKey
     );
