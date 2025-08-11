@@ -1250,7 +1250,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
 
 // NOWY ENDPOINT - użyj persistent stream key
 app.post('/api/stream/use-persistent-key', async (req, res) => {
-  const PERSISTENT_KEY = '3s76-msvs-etfm-5vff-24z1'; // Tymczasowo stary klucz - jeśli iOS nie został zrebuildowany
+  const PERSISTENT_KEY = 'q0e0-ruge-wse6-y53r-2vt1'; // NAPRAWIONO: Zgodny z iOS
   
   try {
     console.log('[YouTube] Using persistent stream key');
