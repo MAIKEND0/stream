@@ -674,7 +674,7 @@ app.get('/api/streams', (req, res) => {
 
 // Test endpoint for hardcoded stream key
 app.post('/api/stream/test-key', async (req, res) => {
-  const testKey = 'vb9r-97r6-kg46-d4d1-2au5';
+  const testKey = process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5';
   
   console.log('[YouTube] Testing hardcoded stream key:', testKey);
   
@@ -753,7 +753,7 @@ app.post('/api/stream/test-key', async (req, res) => {
 
 // Użyj istniejącego stream key (twój hardcoded key)
 app.post('/api/stream/use-existing', async (req, res) => {
-  const existingKey = 'vb9r-97r6-kg46-d4d1-2au5'; // Aktywny klucz z YouTube
+  const existingKey = process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5'; // Z configu Railway lub domyślny
   
   try {
     console.log('[YouTube] Using existing stream key:', existingKey);
@@ -950,7 +950,7 @@ app.get('/api/stream/check-data/:broadcastId', async (req, res) => {
 
 // Force recreate stream with the same key
 app.post('/api/stream/force-recreate', async (req, res) => {
-  const existingKey = 'vb9r-97r6-kg46-d4d1-2au5';
+  const existingKey = process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5';
   
   try {
     console.log('[YouTube] Force recreating stream and broadcast...');
@@ -1194,8 +1194,8 @@ app.get('/api/stream/list-keys', async (req, res) => {
       totalStreams: streamKeys.length,
       streams: streamKeys,
       activeKeys: streamKeys.filter(s => s.isActive).map(s => s.streamKey),
-      expectedKey: 'vb9r-97r6-kg46-d4d1-2au5',
-      keyExists: streamKeys.some(s => s.streamKey === 'vb9r-97r6-kg46-d4d1-2au5')
+      expectedKey: process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5',
+      keyExists: streamKeys.some(s => s.streamKey === (process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5'))
     });
     
   } catch (error) {
@@ -1218,7 +1218,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
       mine: true
     });
     
-    const streamKey = 'vb9r-97r6-kg46-d4d1-2au5';
+    const streamKey = process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5';
     const activeStream = streams.data.items?.find(s => 
       s.cdn?.ingestionInfo?.streamName === streamKey
     );
@@ -1275,7 +1275,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
 
 // Endpoint do utworzenia nowego persistent stream jeśli nie istnieje
 app.post('/api/stream/create-persistent', async (req, res) => {
-  const PERSISTENT_KEY = 'vb9r-97r6-kg46-d4d1-2au5';
+  const PERSISTENT_KEY = process.env.YOUTUBE_STREAM_KEY || 'vb9r-97r6-kg46-d4d1-2au5';
   
   try {
     console.log('[YouTube] Creating new persistent stream with key:', PERSISTENT_KEY);
@@ -1332,112 +1332,58 @@ app.post('/api/stream/create-persistent', async (req, res) => {
 
 // NOWY ENDPOINT - użyj persistent stream key
 app.post('/api/stream/use-persistent-key', async (req, res) => {
-  const PERSISTENT_KEY = 'vb9r-97r6-kg46-d4d1-2au5'; // NAPRAWIONO: Zgodny z iOS
+  const PERSISTENT_KEY = process.env.YOUTUBE_STREAM_KEY; // Użyj klucza z configu Railway
+  
+  if (!PERSISTENT_KEY) {
+    return res.status(500).json({
+      error: 'YOUTUBE_STREAM_KEY not configured in Railway Config'
+    });
+  }
   
   try {
-    console.log('[YouTube] Using persistent stream key');
+    console.log('[YouTube] Using stream key from config:', PERSISTENT_KEY);
     
-    // Znajdź stream z tym kluczem
-    const streamsResponse = await youtube.liveStreams.list({
-      part: ['id', 'status', 'cdn', 'snippet'],
-      mine: true
-    });
+    // Nie szukamy streamu - zakładamy, że istnieje z tym kluczem w YouTube Studio
+    // Tworzymy tylko nowy broadcast
     
-    const persistentStream = streamsResponse.data.items?.find(stream => 
-      stream.cdn?.ingestionInfo?.streamName === PERSISTENT_KEY
-    );
+    console.log('[YouTube] Creating new broadcast with persistent key...');
     
-    if (!persistentStream) {
-      return res.status(404).json({
-        error: 'Stream with this key not found',
-        providedKey: PERSISTENT_KEY,
-        hint: 'Check if the stream key is correct in YouTube Studio'
-      });
-    }
-    
-    console.log('[YouTube] Found persistent stream:', persistentStream.id);
-    
-    // Sprawdź istniejące broadcasty
-    const broadcastsResponse = await youtube.liveBroadcasts.list({
-      part: ['id', 'status', 'contentDetails', 'snippet'],
-      mine: true,
-      maxResults: 10
-    });
-    
-    // Znajdź broadcast powiązany z tym streamem
-    let activeBroadcast = broadcastsResponse.data.items?.find(broadcast =>
-      broadcast.contentDetails?.boundStreamId === persistentStream.id &&
-      (broadcast.status?.lifeCycleStatus === 'ready' || 
-       broadcast.status?.lifeCycleStatus === 'testing' ||
-       broadcast.status?.lifeCycleStatus === 'live')
-    );
-    
-    if (activeBroadcast && activeBroadcast.status?.lifeCycleStatus === 'live') {
-      return res.json({
-        success: true,
-        broadcastId: activeBroadcast.id,
-        streamKey: PERSISTENT_KEY,
-        status: 'live',
-        message: 'Stream is already LIVE!',
-        watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`
-      });
-    }
-    
-    // Utwórz nowy broadcast jeśli potrzebny
-    if (!activeBroadcast || activeBroadcast.status?.lifeCycleStatus === 'complete') {
-      console.log('[YouTube] Creating new broadcast...');
-      
-      const broadcast = await youtube.liveBroadcasts.insert({
-        part: ['snippet', 'status', 'contentDetails'],
-        requestBody: {
-          snippet: {
-            title: `eFootball Mobile - ${new Date().toLocaleString('pl-PL')}`,
-            description: req.body.description || 'Transmisja na żywo z gry eFootball Mobile',
-            scheduledStartTime: new Date().toISOString()
+    const broadcast = await youtube.liveBroadcasts.insert({
+      part: ['snippet', 'status', 'contentDetails'],
+      requestBody: {
+        snippet: {
+          title: `eFootball Mobile - ${new Date().toLocaleString('pl-PL')}`,
+          description: req.body.description || 'Transmisja na żywo z gry eFootball Mobile',
+          scheduledStartTime: new Date().toISOString()
+        },
+        status: {
+          privacyStatus: 'public',
+          selfDeclaredMadeForKids: false
+        },
+        contentDetails: {
+          enableAutoStart: true,
+          enableAutoStop: false,
+          recordFromStart: true,
+          monitorStream: {
+            enableMonitorStream: true,
+            broadcastStreamDelayMs: 0
           },
-          status: {
-            privacyStatus: 'public',
-            selfDeclaredMadeForKids: false
-          },
-          contentDetails: {
-            enableAutoStart: true,
-            enableAutoStop: false,
-            recordFromStart: true,
-            monitorStream: {
-              enableMonitorStream: true,
-              broadcastStreamDelayMs: 0
-            },
-            latencyPreference: 'low'
-          }
+          latencyPreference: 'low'
         }
-      });
-      
-      console.log('[YouTube] New broadcast created:', broadcast.data.id);
-      
-      // Powiąż stream
-      await youtube.liveBroadcasts.bind({
-        part: ['id'],
-        id: broadcast.data.id,
-        streamId: persistentStream.id
-      });
-      
-      activeBroadcast = broadcast.data;
-    }
+      }
+    });
     
-    // Get ingest addresses from the stream
-    const ingest = persistentStream.cdn?.ingestionInfo;
+    console.log('[YouTube] New broadcast created:', broadcast.data.id);
     
+    // Zwróć broadcast z kluczem z configu
     res.json({
       success: true,
-      broadcastId: activeBroadcast.id,
+      broadcastId: broadcast.data.id,
       streamKey: PERSISTENT_KEY,
-      streamId: persistentStream.id,
       rtmpUrl: 'rtmps://a.rtmps.youtube.com/live2',
-      rtmpIngestAddress: ingest?.ingestionAddress,          // NEW: Dynamic ingest from YouTube
-      backupIngestAddress: ingest?.backupIngestionAddress,  // NEW: Backup ingest for failover
-      watchUrl: `https://youtube.com/watch?v=${activeBroadcast.id}`,
-      status: activeBroadcast.status?.lifeCycleStatus,
-      message: 'Broadcast ready! Stream will auto-start when data is detected.'
+      watchUrl: `https://youtube.com/watch?v=${broadcast.data.id}`,
+      status: broadcast.data.status?.lifeCycleStatus,
+      message: 'Broadcast ready! Use the stream key from config to stream.'
     });
     
   } catch (error) {
