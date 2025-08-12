@@ -674,7 +674,7 @@ app.get('/api/streams', (req, res) => {
 
 // Test endpoint for hardcoded stream key
 app.post('/api/stream/test-key', async (req, res) => {
-  const testKey = 'q0e0-ruge-wse6-y53r-2vt1';
+  const testKey = 'vb9r-97r6-kg46-d4d1-2au5';
   
   console.log('[YouTube] Testing hardcoded stream key:', testKey);
   
@@ -753,7 +753,7 @@ app.post('/api/stream/test-key', async (req, res) => {
 
 // Użyj istniejącego stream key (twój hardcoded key)
 app.post('/api/stream/use-existing', async (req, res) => {
-  const existingKey = 'q0e0-ruge-wse6-y53r-2vt1'; // Aktywny klucz z YouTube
+  const existingKey = 'vb9r-97r6-kg46-d4d1-2au5'; // Aktywny klucz z YouTube
   
   try {
     console.log('[YouTube] Using existing stream key:', existingKey);
@@ -950,7 +950,7 @@ app.get('/api/stream/check-data/:broadcastId', async (req, res) => {
 
 // Force recreate stream with the same key
 app.post('/api/stream/force-recreate', async (req, res) => {
-  const existingKey = 'q0e0-ruge-wse6-y53r-2vt1';
+  const existingKey = 'vb9r-97r6-kg46-d4d1-2au5';
   
   try {
     console.log('[YouTube] Force recreating stream and broadcast...');
@@ -1194,8 +1194,8 @@ app.get('/api/stream/list-keys', async (req, res) => {
       totalStreams: streamKeys.length,
       streams: streamKeys,
       activeKeys: streamKeys.filter(s => s.isActive).map(s => s.streamKey),
-      expectedKey: 'q0e0-ruge-wse6-y53r-2vt1',
-      keyExists: streamKeys.some(s => s.streamKey === 'q0e0-ruge-wse6-y53r-2vt1')
+      expectedKey: 'vb9r-97r6-kg46-d4d1-2au5',
+      keyExists: streamKeys.some(s => s.streamKey === 'vb9r-97r6-kg46-d4d1-2au5')
     });
     
   } catch (error) {
@@ -1218,7 +1218,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
       mine: true
     });
     
-    const streamKey = 'q0e0-ruge-wse6-y53r-2vt1';
+    const streamKey = 'vb9r-97r6-kg46-d4d1-2au5';
     const activeStream = streams.data.items?.find(s => 
       s.cdn?.ingestionInfo?.streamName === streamKey
     );
@@ -1275,7 +1275,7 @@ app.get('/api/stream/diagnose', async (req, res) => {
 
 // Endpoint do utworzenia nowego persistent stream jeśli nie istnieje
 app.post('/api/stream/create-persistent', async (req, res) => {
-  const PERSISTENT_KEY = 'q0e0-ruge-wse6-y53r-2vt1';
+  const PERSISTENT_KEY = 'vb9r-97r6-kg46-d4d1-2au5';
   
   try {
     console.log('[YouTube] Creating new persistent stream with key:', PERSISTENT_KEY);
@@ -1332,7 +1332,7 @@ app.post('/api/stream/create-persistent', async (req, res) => {
 
 // NOWY ENDPOINT - użyj persistent stream key
 app.post('/api/stream/use-persistent-key', async (req, res) => {
-  const PERSISTENT_KEY = 'q0e0-ruge-wse6-y53r-2vt1'; // NAPRAWIONO: Zgodny z iOS
+  const PERSISTENT_KEY = 'vb9r-97r6-kg46-d4d1-2au5'; // NAPRAWIONO: Zgodny z iOS
   
   try {
     console.log('[YouTube] Using persistent stream key');
